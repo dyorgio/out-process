@@ -14,6 +14,20 @@
     <name>Out Process</name>
 
     <description>A java library to run pieces of code in another JVM.</description>
+    
+    <url>https://github.com/dyorgio/out-process</url>
+    
+    <issueManagement>
+        <url>https://github.com/dyorgio/out-process/issues</url>
+    </issueManagement>
+
+    <licenses>
+        <license>
+            <name>Apache Licence 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
 
     <developers>
         <developer>
@@ -30,8 +44,8 @@
     
     <scm>
         <connection>scm:git:git@github.com:dyorgio/out-process.git</connection>
-        <url>scm:git:git@github.com:dyorgio/out-process.git</url>
         <developerConnection>scm:git:git@github.com:dyorgio/out-process.git</developerConnection>
+        <url>https://github.com/dyorgio/out-process</url>
     </scm>
     
     <properties>
