@@ -2,6 +2,14 @@ Out Process [![Build Status](https://travis-ci.org/dyorgio/out-process.svg?branc
 ===============
 A java library to run pieces of code in another JVM.
 
+Why use it?
+-----
+* Limit code execution memory (-Xmx??).
+* Safe native code execution (Main JVM not killed by DLL/SO/DYLIB invalid address error).
+* Prevent external code to manipulate your objects.
+* Run limited one-per-jvm code (singleton) in parallel.
+* In use with external binaries can limit cpu usage too.
+
 Usage
 -----
 For single sync execution:
