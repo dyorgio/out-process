@@ -15,17 +15,14 @@
  ***************************************************************************** */
 package dyorgio.runtime.out.process;
 
-import java.io.Serializable;
+import java.util.List;
 
 /**
- * A <code>Runnable</code> and <code>Serializable</code> interface. Usefull for
- * fast encapsulation of pieces of code and lambdas.
+ * Create a new ProcessBuilder from a list os commands.
  *
  * @author dyorgio
- * @serial
- * @see Runnable
- * @see Serializable
  */
-public interface RunnableSerializable extends Runnable, Serializable {
+public interface ProcessBuilderFactory {
 
+    ProcessBuilder create(List<String> commands) throws Exception;
 }

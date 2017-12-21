@@ -37,7 +37,7 @@ import java.util.concurrent.ExecutionException;
  * Normally this class can be a singleton if classpath and jvmOptions are always
  * equals, otherwise create a new instance for every cenario.<br>
  * <br>
- * If you need to share states/data between executions (<code>run</code> an
+ * If you need to share states/data between executions (<code>run</code> and
  * <code>call</code>) use <code>OutProcessExecutorService</code> class instead.
  *
  * @author dyorgio
@@ -111,12 +111,13 @@ public class OneRunOutProcess {
 
     /**
      * Runs runnable in a new JVM.
+     *
      * @param runnable A <code>RunnableSerializable</code> to run.
      * @return The process <code>int</code> return code.
      * @throws Exception If cannot create a new JVM.
      * @throws ExecutionException If a error occurred in execution.
      * @see RunnableSerializable
-     * @serialData 
+     * @serialData
      */
     public int run(RunnableSerializable runnable) throws Exception, ExecutionException {
         return call(new RunnableCallableWrapper(runnable)).getReturnCode();
@@ -124,14 +125,16 @@ public class OneRunOutProcess {
 
     /**
      * Calls callable in a new JVM.
+     *
      * @param <T> Result type.
-     * @param callable  A <code>CallableSerializable</code> to be called.
-     * @return An <code>OutProcessResult</code> object containing the result and return code.
+     * @param callable A <code>CallableSerializable</code> to be called.
+     * @return An <code>OutProcessResult</code> object containing the result and
+     * return code.
      * @throws Exception If cannot create a new JVM.
      * @throws ExecutionException If a error occurred in execution.
      * @see CallableSerializable
      * @see OutProcessResult
-     * @serialData 
+     * @serialData
      */
     public <T extends Serializable> OutProcessResult<T> call(CallableSerializable<T> callable) throws Exception, ExecutionException {
 
@@ -140,26 +143,24 @@ public class OneRunOutProcess {
             // run here
             return new OutProcessResult(callable.call(), 0);
         }
-        
+
         // Create a tmp server
         PipeServer pipeServer = new PipeServer(callable);
-
-        // create out process command
-        List<String> commandList = new ArrayList<>();
-        commandList.add(System.getProperty("java.home") + "/bin/java");
-        commandList.addAll(Arrays.asList(javaOptions));
-        commandList.add("-cp");
-        commandList.add(classpath);
-        commandList.add(OneRunRemoteMain.class.getName());
-        commandList.add(String.valueOf(pipeServer.server.getLocalPort()));
-        commandList.add(pipeServer.secret);
-
-        // adjust in processBuilderFactory and starts
-        Process process = processBuilderFactory.create(commandList)
-                .inheritIO().start();
-
         int returnCode;
         try {
+            // create out process command
+            List<String> commandList = new ArrayList<>();
+            commandList.add(System.getProperty("java.home") + "/bin/java");
+            commandList.addAll(Arrays.asList(javaOptions));
+            commandList.add("-cp");
+            commandList.add(classpath);
+            commandList.add(OneRunRemoteMain.class.getName());
+            commandList.add(String.valueOf(pipeServer.server.getLocalPort()));
+            commandList.add(pipeServer.secret);
+
+            // adjust in processBuilderFactory and starts
+            Process process = processBuilderFactory.create(commandList).start();
+
             returnCode = process.waitFor();
         } finally {
             pipeServer.close();
@@ -248,8 +249,10 @@ public class OneRunOutProcess {
 
     /**
      * Represents the result of a out process call
+     *
      * @param <V> Type of result
-     * @see OneRunOutProcess#call(dyorgio.runtime.out.process.CallableSerializable) 
+     * @see
+     * OneRunOutProcess#call(dyorgio.runtime.out.process.CallableSerializable)
      */
     public static final class OutProcessResult<V extends Serializable> {
 
@@ -267,22 +270,6 @@ public class OneRunOutProcess {
 
         public int getReturnCode() {
             return returnCode;
-        }
-    }
-
-    /**
-     * Create a new ProcessBuilder from a list os commands.
-     */
-    public static interface ProcessBuilderFactory {
-
-        ProcessBuilder create(List<String> commands) throws Exception;
-    }
-
-    private static final class DefaultProcessBuilderFactory implements ProcessBuilderFactory {
-
-        @Override
-        public ProcessBuilder create(List<String> commands) throws Exception {
-            return new ProcessBuilder(commands);
         }
     }
 

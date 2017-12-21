@@ -15,17 +15,21 @@
  ***************************************************************************** */
 package dyorgio.runtime.out.process;
 
-import java.io.Serializable;
+import java.util.List;
 
 /**
- * A <code>Runnable</code> and <code>Serializable</code> interface. Usefull for
- * fast encapsulation of pieces of code and lambdas.
+ * Default implementation, just calls <code>ProcessBuilder</code> constructor
+ * and <code>inheritIO()</code>.
  *
  * @author dyorgio
- * @serial
- * @see Runnable
- * @see Serializable
+ * @see ProcessBuilderFactory
+ * @see ProcessBuilder#ProcessBuilder(java.util.List)
+ * @see ProcessBuilder#inheritIO()
  */
-public interface RunnableSerializable extends Runnable, Serializable {
+public class DefaultProcessBuilderFactory implements ProcessBuilderFactory {
 
+    @Override
+    public ProcessBuilder create(List<String> commands) throws Exception {
+        return new ProcessBuilder(commands).inheritIO();
+    }
 }

@@ -39,7 +39,9 @@ public class OutProcessUtils {
 
     /**
      * Get current Thread classpath.
-     * @return A string of current classpath elements splited by <code>File.pathSeparatorChar</code>
+     *
+     * @return A string of current classpath elements splited by
+     * <code>File.pathSeparatorChar</code>
      */
     public static String getCurrentClasspath() {
         StringBuilder buffer = new StringBuilder();
@@ -51,20 +53,23 @@ public class OutProcessUtils {
         classpath = classpath.substring(0, classpath.lastIndexOf(File.pathSeparatorChar));
         return classpath;
     }
-    
-    
+
     /**
-     * Creates a new <code>ObjectInputStream</code> from <code>inputStream</code> parameter, 
-     * reads a <code>Callable</code> command from it, executes call, and write results on <code>objOut</code>.
+     * Creates a new <code>ObjectInputStream</code> from
+     * <code>inputStream</code> parameter, reads a <code>Callable</code> command
+     * from it, executes call, and write results on <code>objOut</code>.
      * <br>
-     * After executing <code>Callable.call()</code> a primitive boolean is wrote in <code>objOut</code> to sinalize the execution state:
+     * After executing <code>Callable.call()</code> a primitive boolean is wrote
+     * in <code>objOut</code> to sinalize the execution state:
      * <br>
-     * <code>true</code>: OK execution. Result is wrote on <code>objOut</code><br>
-     * <code>false</code>: An <code>Exception</code> occurred. <code>Exception</code> is wrote on <code>objOut</code><br>
-     * 
+     * <code>true</code>: OK execution. Result is wrote on
+     * <code>objOut</code><br>
+     * <code>false</code>: An <code>Exception</code> occurred.
+     * <code>Exception</code> is wrote on <code>objOut</code><br>
+     *
      * @param inputStream A source of the command.
-     * @param objOut The output for result. 
-     * @throws IOException 
+     * @param objOut The output for result.
+     * @throws IOException
      * @see ObjectInputStream
      * @see Callable
      * @see ObjectOutputStream
@@ -73,7 +78,7 @@ public class OutProcessUtils {
         try {
             // Read current command
             Callable<Serializable> callable = (Callable<Serializable>) new ObjectInputStream(inputStream).readObject();
-            
+
             Serializable result = callable.call();
             // Reply with result
             objOut.writeBoolean(true);

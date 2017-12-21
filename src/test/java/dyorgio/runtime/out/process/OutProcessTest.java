@@ -15,6 +15,7 @@
  ***************************************************************************** */
 package dyorgio.runtime.out.process;
 
+import java.io.File;
 import java.io.Serializable;
 import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
@@ -112,6 +113,57 @@ public class OutProcessTest implements Serializable {
                 dummy.add(data);
             }
         });
+    }
+
+    /**
+     * Test if JVM crash is correctly handled by out-process library.
+     */
+    @Test
+    public void testJVMCrash() throws Throwable {
+        OutProcessExecutorService sharedProcess = null;
+        Integer jvmPID = null;
+        try {
+            sharedProcess = new OutProcessExecutorService((List<String> commands) -> {
+                ProcessBuilder processBuilder = new ProcessBuilder(commands);
+                processBuilder.directory(new File("./target"));
+                return processBuilder;
+            }, "-Xmx32m");
+            jvmPID = sharedProcess.submit(new CallableSerializable<Integer>() {
+                @Override
+                public Integer call() {
+                    try {
+                        return getProcessPID();
+                    } catch (Exception ex) {
+                        throw new RuntimeException(ex);
+                    }
+                }
+            }).get();
+
+            sharedProcess.submit(new RunnableSerializable() {
+                @Override
+                public void run() {
+                    try {
+                        Class unsafeClass = Class.forName("sun.misc.Unsafe");
+                        Field f = unsafeClass.getDeclaredField("theUnsafe");
+                        f.setAccessible(true);
+                        Object unsafe = f.get(null);
+                        Method m = unsafeClass.getDeclaredMethod("putAddress", long.class, long.class);
+                        m.setAccessible(true);
+                        m.invoke(unsafe, 0, 0);
+                    } catch (Exception ex) {
+                        throw new RuntimeException(ex);
+                    }
+                }
+            }).get();
+        } catch (ExecutionException ex) {
+            Assert.assertTrue("Error file not exists.", new File("./target", "hs_err_pid" + jvmPID + ".log").exists());
+        } finally {
+            if (sharedProcess != null) {
+                sharedProcess.shutdown();
+                sharedProcess.awaitTermination(3, TimeUnit.SECONDS);
+                sharedProcess.shutdownNow();
+            }
+        }
     }
 
     private static void runInOutProcess(RunnableSerializable runnable) throws Throwable {

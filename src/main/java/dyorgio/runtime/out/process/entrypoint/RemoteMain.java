@@ -22,7 +22,9 @@ import java.io.ObjectOutputStream;
 import java.net.Socket;
 
 /**
- * The entry point of an out process created by an <code>OutProcessExecutorService</code> instance.
+ * The entry point of an out process created by an
+ * <code>OutProcessExecutorService</code> instance.
+ *
  * @author dyorgio
  * @see OutProcessExecutorService
  */

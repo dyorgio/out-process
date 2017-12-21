@@ -65,6 +65,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
     private static final String RUNNING_AS_OUT_PROCESS = "$RunnningAsOutProcess";
 
     private boolean shutdown = false;
+    private final ProcessBuilderFactory processBuilderFactory;
     private final PipeServer pipe;
     private final SynchronousQueue<SerializableFutureTask> toProcess = new SynchronousQueue<>();
 
@@ -72,9 +73,10 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      * Creates an instance with specific java options
      *
      * @param javaOptions JVM options (ex:"-xmx32m")
+     * @throws Exception If cannot create external JVM.
      */
-    public OutProcessExecutorService(String... javaOptions) throws IOException {
-        this(null, javaOptions);
+    public OutProcessExecutorService(String... javaOptions) throws Exception {
+        this(new DefaultProcessBuilderFactory(), null, javaOptions);
     }
 
     /**
@@ -84,8 +86,49 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      * thread classpath.
      * @param javaOptions JVM options (ex:"-xmx32m")
      * @see OutProcessUtils#getCurrentClasspath()
+     * @throws Exception If cannot create external JVM.
      */
-    public OutProcessExecutorService(String classpath, String[] javaOptions) throws IOException {
+    public OutProcessExecutorService(String classpath, String[] javaOptions) throws Exception {
+        this(new DefaultProcessBuilderFactory(), classpath, javaOptions);
+    }
+
+    /**
+     * Creates an instance with specific processBuilderFactory and java options
+     *
+     * @param processBuilderFactory A factory to convert a
+     * <code>List&lt;String&gt;</code> to <code>ProcessBuilder</code>.
+     * @param javaOptions JVM options (ex:"-xmx32m")
+     * @see ProcessBuilderFactory
+     * @see ProcessBuilder
+     * @throws Exception If cannot create external JVM.
+     * @throws NullPointerException If <code>processBuilderFactory</code> is
+     * <code>null</code>.
+     */
+    public OutProcessExecutorService(ProcessBuilderFactory processBuilderFactory, String... javaOptions) throws Exception {
+        this(processBuilderFactory, null, javaOptions);
+    }
+
+    /**
+     * Creates an instance with specific processBuilderFactory, classpath and
+     * java options
+     *
+     * @param processBuilderFactory A factory to convert a
+     * <code>List&lt;String&gt;</code> to <code>ProcessBuilder</code>.
+     * @param classpath JVM classpath, if <code>null</code> will use current
+     * thread classpath.
+     * @param javaOptions JVM options (ex:"-xmx32m")
+     * @see ProcessBuilderFactory
+     * @see ProcessBuilder
+     * @see OutProcessUtils#getCurrentClasspath()
+     * @throws Exception If cannot create external JVM.
+     * @throws NullPointerException If <code>processBuilderFactory</code> is
+     * <code>null</code>.
+     */
+    public OutProcessExecutorService(ProcessBuilderFactory processBuilderFactory, String classpath, String[] javaOptions) throws Exception {
+        if (processBuilderFactory == null) {
+            throw new NullPointerException("Process Builder Factory cannot be null.");
+        }
+        this.processBuilderFactory = processBuilderFactory;
         this.pipe = new PipeServer(classpath == null ? getCurrentClasspath() : classpath, javaOptions);
     }
 
@@ -157,7 +200,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
         private final String secret;
         private final Process process;
 
-        PipeServer(String classpath, String... javaOptions) throws IOException {
+        PipeServer(String classpath, String... javaOptions) throws Exception {
             Random r = new Random(System.currentTimeMillis());
             ServerSocket tmpServer = null;
             while (true) {
@@ -181,9 +224,10 @@ public class OutProcessExecutorService extends AbstractExecutorService {
             commandList.add(String.valueOf(server.getLocalPort()));
             commandList.add(secret);
 
-            ProcessBuilder builder = new ProcessBuilder(commandList);
-            builder.inheritIO();
-            process = builder.start();
+            // adjust in processBuilderFactory and starts
+            process = processBuilderFactory.create(commandList).start();
+
+            // start thread
             start();
         }
 
