@@ -4,7 +4,7 @@ A java library to run pieces of code in another JVM.
 
 Usage
 -----
-For single synch execution:
+For single sync execution:
 
 ```java
 // Specify JVM options (optional)
@@ -15,7 +15,7 @@ int returnCode = oneRun.run(() -> System.out.println("Hello 1"));
 System.out.println(oneRun.call(() -> System.getProperty("java.version")).getResult());
 ```
 
-For consecutive/asynch executions:
+For consecutive/async executions:
 ```java
 // Specify JVM options (optional)
 OutProcessExecutorService sharedProcess = new OutProcessExecutorService("-Xmx32m");
