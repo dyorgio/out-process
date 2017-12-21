@@ -1,6 +1,6 @@
 Out Process [![Build Status](https://travis-ci.org/dyorgio/out-process.svg?branch=master)](https://travis-ci.org/dyorgio/out-process)
 ===============
-A java library to run pieces of code in another JVM.
+A java library to run pieces of code in another (new) JVM.
 
 Why use it?
 -----
