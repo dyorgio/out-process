@@ -13,5 +13,8 @@ hs_err_pid*
 
 # Mac metadata
 .DS_Store
+
+# build files
+/target
 /release.properties
 /pom.xml.releaseBackup
