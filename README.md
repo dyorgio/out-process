@@ -1,5 +1,7 @@
-Out Process [![Build Status](https://travis-ci.org/dyorgio/out-process.svg?branch=master)](https://travis-ci.org/dyorgio/out-process) [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.dyorgio.runtime/out-process/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.github.dyorgio.runtime/out-process)[![Dependency Status](https://beta.gemnasium.com/badges/github.com/dyorgio/out-process.svg)](https://beta.gemnasium.com/projects/github.com/dyorgio/out-process)
+Out Process
 ===============
+[![Build Status](https://travis-ci.org/dyorgio/out-process.svg?branch=master)](https://travis-ci.org/dyorgio/out-process) [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.dyorgio.runtime/out-process/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.github.dyorgio.runtime/out-process) [![Dependency Status](https://beta.gemnasium.com/badges/github.com/dyorgio/out-process.svg)](https://beta.gemnasium.com/projects/github.com/dyorgio/out-process)
+
 A java library to run pieces of code in another (new) JVM.
 
 Why use it?
@@ -42,4 +44,14 @@ String value = sharedProcess.submit(new CallableSerializable<String>() {
     }
 }).get();
 System.out.println(value);
+```
+
+Maven
+-----
+```xml
+<dependency>
+    <groupId>com.github.dyorgio.runtime</groupId>
+    <artifactId>out-process</artifactId>
+    <version>1.0.0</version>
+</dependency>
 ```
