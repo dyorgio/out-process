@@ -5,7 +5,7 @@
     
     <modelVersion>4.0.0</modelVersion>
     
-    <groupId>dyorgio.runtime</groupId>
+    <groupId>com.github.dyorgio.runtime</groupId>
     <artifactId>out-process</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     
