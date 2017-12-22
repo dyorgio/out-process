@@ -45,7 +45,7 @@
     <scm>
         <connection>scm:git:git@github.com:dyorgio/out-process.git</connection>
         <developerConnection>scm:git:git@github.com:dyorgio/out-process.git</developerConnection>
-        <url>https://github.com/dyorgio/out-process</url>
+        <url>https://github.com/dyorgio/out-process.git</url>
     </scm>
     
     <properties>
@@ -57,7 +57,6 @@
         
         <version.maven.compiler.plugin>3.7.0</version.maven.compiler.plugin>
         <version.animal.sniffer.maven.plugin>1.16</version.animal.sniffer.maven.plugin>
-        <version.maven.release.plugin>2.5.3</version.maven.release.plugin>
         
         <version.junit>4.12</version.junit>
     </properties>
@@ -103,11 +102,83 @@
                     </execution>
                 </executions>
             </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-release-plugin</artifactId>
-                <version>${version.maven.release.plugin}</version>
-            </plugin>
         </plugins>
     </build>
+    
+    <profiles>
+        <profile>
+            <id>release</id>
+            <properties>
+                <version.maven.release.plugin>2.5.3</version.maven.release.plugin>
+                <version.maven.source.plugin>3.0.1</version.maven.source.plugin>
+                <version.maven.javadoc.plugin>3.0.0</version.maven.javadoc.plugin>
+                <version.maven.gpg.plugin>1.6</version.maven.gpg.plugin>
+            </properties>
+            <distributionManagement>
+                <snapshotRepository>
+                    <id>ossrh</id>
+                    <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+                </snapshotRepository>
+                <repository>
+                    <id>ossrh</id>
+                    <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+                </repository>
+            </distributionManagement>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-release-plugin</artifactId>
+                        <version>${version.maven.release.plugin}</version>
+                        <configuration>
+                            <autoVersionSubmodules>true</autoVersionSubmodules>
+                            <useReleaseProfile>false</useReleaseProfile>
+                            <releaseProfiles>release</releaseProfiles>
+                            <goals>deploy</goals>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>${version.maven.source.plugin}</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>${version.maven.javadoc.plugin}</version>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>${version.maven.gpg.plugin}</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
