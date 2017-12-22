@@ -1,4 +1,4 @@
-Out Process [![Build Status](https://travis-ci.org/dyorgio/out-process.svg?branch=master)](https://travis-ci.org/dyorgio/out-process)
+Out Process [![Build Status](https://travis-ci.org/dyorgio/out-process.svg?branch=master)](https://travis-ci.org/dyorgio/out-process) [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.dyorgio.runtime/out-process/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.github.dyorgio.runtime/out-process)
 ===============
 A java library to run pieces of code in another (new) JVM.
 
