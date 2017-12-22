@@ -5,7 +5,7 @@
     
     <groupId>com.github.dyorgio.runtime</groupId>
     <artifactId>out-process</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-SNAPSHOT</version>
     
     <packaging>jar</packaging>
     
@@ -44,8 +44,7 @@
         <connection>scm:git:git@github.com:dyorgio/out-process.git</connection>
         <developerConnection>scm:git:git@github.com:dyorgio/out-process.git</developerConnection>
         <url>https://github.com/dyorgio/out-process.git</url>
-      <tag>out-process-1.0.0</tag>
-  </scm>
+    </scm>
     
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
