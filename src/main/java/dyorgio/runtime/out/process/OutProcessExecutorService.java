@@ -17,7 +17,6 @@ package dyorgio.runtime.out.process;
 
 import static dyorgio.runtime.out.process.OutProcessUtils.getCurrentClasspath;
 import dyorgio.runtime.out.process.entrypoint.RemoteMain;
-import java.io.IOException;
 import java.io.NotSerializableException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
@@ -28,16 +27,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
-import java.util.concurrent.AbstractExecutorService;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.RunnableFuture;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 
 /**
  * Run serializable <code>Callable</code>s and <code>Runnable</code>s in another
@@ -237,7 +227,6 @@ public class OutProcessExecutorService extends AbstractExecutorService {
                 try {
                     Socket s = server.accept();
                     if (s != null) {
-
                         ObjectInputStream objStream = new ObjectInputStream(s.getInputStream());
                         String clientSecret = objStream.readUTF();
                         if (clientSecret.equals(secret)) {
@@ -249,7 +238,6 @@ public class OutProcessExecutorService extends AbstractExecutorService {
                                 if (task != null) {
                                     try {
                                         ObjectOutputStream objOut = new ObjectOutputStream(s.getOutputStream());
-
                                         objOut.writeObject(task.callable);
                                         objOut.flush();
 

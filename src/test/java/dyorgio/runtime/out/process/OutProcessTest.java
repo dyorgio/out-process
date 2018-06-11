@@ -47,10 +47,22 @@ public class OutProcessTest implements Serializable {
     public void testOneRun() throws Throwable {
         OneRunOutProcess oneRun = new OneRunOutProcess("-Xmx32m");
         oneRun.run(() -> System.setProperty("$testOneRun", "EXECUTED"));
-
         String value = oneRun.call(() -> System.getProperty("$testOneRun")).getResult();
-
         Assert.assertNull("Expected a null value.", value);
+    }
+
+    /**
+     * Test if a system variable is saved between executions, always a new JVM
+     * (Not valid for <code>OneRunOutProcess</code>).
+     *
+     * @see OneRunOutProcess
+     */
+    @Test(expected = ExecutionException.class)
+    public void testOneRunThrows() throws Throwable {
+        OneRunOutProcess oneRun = new OneRunOutProcess("-Xmx32m");
+        oneRun.run(() -> {
+            throw new RuntimeException("Error");
+        });
     }
 
     /**
@@ -64,17 +76,18 @@ public class OutProcessTest implements Serializable {
         OutProcessExecutorService sharedProcess = null;
         try {
             sharedProcess = new OutProcessExecutorService("-Xmx32m");
-            sharedProcess.submit(new CallableSerializable<String>() {
-                @Override
-                public String call() {
-                    return System.setProperty("$testOneRun", "EXECUTED");
-                }
-            }).get();
-
             String value = sharedProcess.submit(new CallableSerializable<String>() {
                 @Override
                 public String call() {
-                    return System.getProperty("$testOneRun");
+                    return System.setProperty("$testSharedRun", "EXECUTED");
+                }
+            }).get();
+            Assert.assertNull("Expected a null value.", value);
+
+            value = sharedProcess.submit(new CallableSerializable<String>() {
+                @Override
+                public String call() {
+                    return System.getProperty("$testSharedRun");
                 }
             }).get();
 

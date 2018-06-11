@@ -17,16 +17,17 @@ package dyorgio.runtime.out.process;
 
 import static dyorgio.runtime.out.process.OutProcessUtils.RUNNING_AS_OUT_PROCESS;
 import static dyorgio.runtime.out.process.OutProcessUtils.getCurrentClasspath;
+import static dyorgio.runtime.out.process.OutProcessUtils.serialize;
+import static dyorgio.runtime.out.process.OutProcessUtils.unserialize;
 import dyorgio.runtime.out.process.entrypoint.OneRunRemoteMain;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.io.File;
+import java.io.RandomAccessFile;
 import java.io.Serializable;
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -47,6 +48,12 @@ import java.util.concurrent.ExecutionException;
  */
 public class OneRunOutProcess {
 
+    public static int DEFAULT_IN_BUFFER_SIZE = 32 * 1024;
+    public static int DEFAULT_OUT_BUFFER_SIZE = 32 * 1024 * 1024;
+
+    private final File tmpDir;
+    private final int inBufferSize;
+    private final int outBufferSize;
     private final ProcessBuilderFactory processBuilderFactory;
     private final String classpath;
     private final String[] javaOptions;
@@ -86,8 +93,8 @@ public class OneRunOutProcess {
     }
 
     /**
-     * Creates an instance with specific processBuilderFactory, classpath and
-     * java options
+     * Creates an instance with default jvm temporary dir and specific
+     * processBuilderFactory, classpath and java options
      *
      * @param processBuilderFactory A factory to convert a
      * <code>List&lt;String&gt;</code> to <code>ProcessBuilder</code>.
@@ -101,6 +108,53 @@ public class OneRunOutProcess {
      * <code>null</code>.
      */
     public OneRunOutProcess(ProcessBuilderFactory processBuilderFactory, String classpath, String[] javaOptions) {
+        this(null, processBuilderFactory, classpath, javaOptions);
+    }
+
+    /**
+     * Creates an instance with specific temporary dir, processBuilderFactory,
+     * classpath and java options.
+     *
+     * @param tmpDir Temporary directory to create IPC files, if
+     * <code>null</code> uses default.
+     * @param processBuilderFactory A factory to convert a
+     * <code>List&lt;String&gt;</code> to <code>ProcessBuilder</code>.
+     * @param classpath JVM classpath, if <code>null</code> will use current
+     * thread classpath.
+     * @param javaOptions JVM options (ex:"-xmx32m")
+     * @see ProcessBuilderFactory
+     * @see ProcessBuilder
+     * @see OutProcessUtils#getCurrentClasspath()
+     * @throws NullPointerException If <code>processBuilderFactory</code> is
+     * <code>null</code>.
+     */
+    public OneRunOutProcess(File tmpDir, ProcessBuilderFactory processBuilderFactory, String classpath, String[] javaOptions) {
+        this(tmpDir, DEFAULT_IN_BUFFER_SIZE, DEFAULT_OUT_BUFFER_SIZE, processBuilderFactory, classpath, javaOptions);
+    }
+
+    /**
+     * Creates an instance with specific temporary dir, processBuilderFactory,
+     * classpath and java options.
+     *
+     * @param tmpDir Temporary directory to create IPC files, if
+     * <code>null</code> uses default.
+     * @param inBufferSize Size of input buffer.
+     * @param outBufferSize Size of output buffer.
+     * @param processBuilderFactory A factory to convert a
+     * <code>List&lt;String&gt;</code> to <code>ProcessBuilder</code>.
+     * @param classpath JVM classpath, if <code>null</code> will use current
+     * thread classpath.
+     * @param javaOptions JVM options (ex:"-xmx32m")
+     * @see ProcessBuilderFactory
+     * @see ProcessBuilder
+     * @see OutProcessUtils#getCurrentClasspath()
+     * @throws NullPointerException If <code>processBuilderFactory</code> is
+     * <code>null</code>.
+     */
+    public OneRunOutProcess(File tmpDir, int inBufferSize, int outBufferSize, ProcessBuilderFactory processBuilderFactory, String classpath, String[] javaOptions) {
+        this.tmpDir = tmpDir;
+        this.inBufferSize = inBufferSize;
+        this.outBufferSize = outBufferSize;
         if (processBuilderFactory == null) {
             throw new NullPointerException("Process Builder Factory cannot be null.");
         }
@@ -144,106 +198,44 @@ public class OneRunOutProcess {
             return new OutProcessResult(callable.call(), 0);
         }
 
-        // Create a tmp server
-        PipeServer pipeServer = new PipeServer(callable);
-        int returnCode;
+        // Create tmp files
+        File ipcFile = File.createTempFile("out-process", ".dat", tmpDir);
+        ipcFile.deleteOnExit();
         try {
-            // create out process command
-            List<String> commandList = new ArrayList<>();
-            commandList.add(System.getProperty("java.home") + "/bin/java");
-            commandList.addAll(Arrays.asList(javaOptions));
-            commandList.add("-cp");
-            commandList.add(classpath);
-            commandList.add(OneRunRemoteMain.class.getName());
-            commandList.add(String.valueOf(pipeServer.server.getLocalPort()));
-            commandList.add(pipeServer.secret);
+            int returnCode;
+            try (RandomAccessFile ipcRaf = new RandomAccessFile(ipcFile, "rw")) {
+                MappedByteBuffer ipcBuffer = ipcRaf.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, inBufferSize + outBufferSize);
+                byte[] data = serialize(callable);
+                ipcBuffer.putInt(data.length);
+                ipcBuffer.put(data);
 
-            // adjust in processBuilderFactory and starts
-            Process process = processBuilderFactory.create(commandList).start();
+                // create out process command
+                List<String> commandList = new ArrayList<>();
+                commandList.add(System.getProperty("java.home") + "/bin/java");
+                commandList.addAll(Arrays.asList(javaOptions));
+                commandList.add("-cp");
+                commandList.add(classpath);
+                commandList.add(OneRunRemoteMain.class.getName());
+                commandList.add(ipcFile.getAbsolutePath());
 
-            returnCode = process.waitFor();
+                // adjust in processBuilderFactory and starts
+                Process process = processBuilderFactory.create(commandList).start();
+
+                returnCode = process.waitFor();
+                
+                boolean error = ipcBuffer.get() == 0;
+
+                byte[] buffer = new byte[ipcBuffer.getInt()];
+                ipcBuffer.get(buffer);
+                Object obj = unserialize(buffer);
+                
+                if (error) {
+                    throw new ExecutionException((Throwable) obj);
+                }
+                return new OutProcessResult((Serializable) obj, returnCode);
+            }
         } finally {
-            pipeServer.close();
-        }
-
-        if (pipeServer.error != null) {
-            throw new ExecutionException(pipeServer.error);
-        } else {
-            return new OutProcessResult(pipeServer.result, returnCode);
-        }
-    }
-
-    /**
-     * Pipe SocketServer to comunicate with out process.
-     */
-    private static class PipeServer {
-
-        private final ServerSocket server;
-        private final String secret;
-        private final Thread acceptAndRead;
-        private Throwable error;
-        private Serializable result;
-
-        public PipeServer(final Serializable command) {
-
-            Random r = new Random(System.currentTimeMillis());
-            ServerSocket tmpServer = null;
-            while (true) {
-                try {
-                    tmpServer = new ServerSocket(1025 + r.nextInt(65535 - 1024));
-                    break;
-                } catch (Exception e) {
-
-                }
-            }
-            this.server = tmpServer;
-            this.secret = r.nextLong() + ":" + r.nextLong() + ":" + r.nextLong() + ":" + r.nextLong();
-
-            acceptAndRead = new Thread() {
-                @Override
-                public void run() {
-                    while (!isInterrupted()) {
-                        try {
-                            Socket s = server.accept();
-                            if (s != null) {
-
-                                ObjectInputStream objStream = new ObjectInputStream(s.getInputStream());
-                                String clientSecret = objStream.readUTF();
-                                if (clientSecret.equals(secret)) {
-
-                                    ObjectOutputStream objOut = new ObjectOutputStream(s.getOutputStream());
-
-                                    objOut.writeObject(command);
-                                    objOut.flush();
-
-                                    if (objStream.readBoolean()) {
-                                        result = (Serializable) objStream.readObject();
-                                    } else {
-                                        error = (Throwable) objStream.readObject();
-                                    }
-                                } else {
-                                    s.close();
-                                }
-                            }
-                        } catch (Exception e) {
-                        }
-                    }
-                }
-            };
-            acceptAndRead.start();
-        }
-
-        public void close() {
-            try {
-                acceptAndRead.interrupt();
-                server.close();
-            } catch (Exception e) {
-            }
-
-            try {
-                acceptAndRead.join();
-            } catch (Exception e) {
-            }
+            ipcFile.delete();
         }
     }
 

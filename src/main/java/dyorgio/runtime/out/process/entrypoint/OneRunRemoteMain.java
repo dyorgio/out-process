@@ -17,9 +17,14 @@ package dyorgio.runtime.out.process.entrypoint;
 
 import dyorgio.runtime.out.process.OneRunOutProcess;
 import static dyorgio.runtime.out.process.OutProcessUtils.RUNNING_AS_OUT_PROCESS;
-import static dyorgio.runtime.out.process.OutProcessUtils.readCommandExecuteAndRespond;
-import java.io.ObjectOutputStream;
-import java.net.Socket;
+import static dyorgio.runtime.out.process.OutProcessUtils.serialize;
+import static dyorgio.runtime.out.process.OutProcessUtils.unserialize;
+import java.io.File;
+import java.io.RandomAccessFile;
+import java.io.Serializable;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import java.util.concurrent.Callable;
 
 /**
  * The entry point of an out process created by an <code>OneRunOutProcess</code>
@@ -33,15 +38,33 @@ public class OneRunRemoteMain {
     public static void main(String[] args) throws Exception {
         // Identify as an out process execution
         System.setProperty(RUNNING_AS_OUT_PROCESS, "true");
-        // Open socket with the port received as parameter
-        try (Socket socket = new Socket("localhost", Integer.valueOf(args[0]))) {
-            // Reply with secret
-            ObjectOutputStream objOut = new ObjectOutputStream(socket.getOutputStream());
-            objOut.writeUTF(args[1]);
-            objOut.flush();
 
-            // Read and execute one command
-            readCommandExecuteAndRespond(socket.getInputStream(), objOut);
+        try (RandomAccessFile ipcRaf = new RandomAccessFile(new File(args[0]), "rw")) {
+            MappedByteBuffer ipcBuffer = ipcRaf.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, ipcRaf.length());
+            byte[] data;
+            try {
+                data = new byte[ipcBuffer.getInt()];
+                ipcBuffer.get(data);
+
+                Serializable result = ((Callable<Serializable>) unserialize(data)).call();
+                data = serialize(result);
+                ipcBuffer.put((byte) 1);
+                ipcBuffer.putInt(data.length);
+                ipcBuffer.put(data);
+            } catch (Throwable e) {
+                try {
+                    data = serialize(e);
+                    ipcBuffer.put((byte) 0);
+                    ipcBuffer.putInt(data.length);
+                    ipcBuffer.put(data);
+                } catch (Throwable ex) {
+                    // Reply with safe error (without not-serializable objects).
+                    data = serialize(new RuntimeException(ex.getMessage()));
+                    ipcBuffer.put((byte) 0);
+                    ipcBuffer.putInt(data.length);
+                    ipcBuffer.put(data);
+                }
+            }
         }
     }
 }
