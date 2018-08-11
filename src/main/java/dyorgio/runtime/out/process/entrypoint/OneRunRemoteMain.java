@@ -1,5 +1,5 @@
 /** *****************************************************************************
- * Copyright 2017 See AUTHORS file.
+ * Copyright 2018 See AUTHORS file.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,7 +46,7 @@ public class OneRunRemoteMain {
                 data = new byte[ipcBuffer.getInt()];
                 ipcBuffer.get(data);
 
-                Serializable result = ((Callable<Serializable>) unserialize(data)).call();
+                Serializable result = (Serializable) unserialize(data, Callable.class).call();
                 data = serialize(result);
                 ipcBuffer.put((byte) 1);
                 ipcBuffer.putInt(data.length);

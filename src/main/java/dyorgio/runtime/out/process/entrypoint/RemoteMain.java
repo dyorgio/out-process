@@ -1,5 +1,5 @@
 /** *****************************************************************************
- * Copyright 2017 See AUTHORS file.
+ * Copyright 2018 See AUTHORS file.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,11 @@ package dyorgio.runtime.out.process.entrypoint;
 
 import dyorgio.runtime.out.process.OutProcessExecutorService;
 import static dyorgio.runtime.out.process.OutProcessUtils.RUNNING_AS_OUT_PROCESS;
-import static dyorgio.runtime.out.process.OutProcessUtils.readCommandExecuteAndRespond;
-import java.io.ObjectOutputStream;
+import static dyorgio.runtime.out.process.OutProcessUtils.readObject;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.net.Socket;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * The entry point of an out process created by an
@@ -30,20 +32,44 @@ import java.net.Socket;
  */
 public class RemoteMain {
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) throws Throwable {
         // Identify as an out process execution
         System.setProperty(RUNNING_AS_OUT_PROCESS, "true");
+        
+        final AtomicReference<Throwable> throwableReference = new AtomicReference();
         // Open socket with the port received as parameter
         try (Socket socket = new Socket("localhost", Integer.valueOf(args[0]))) {
-            // Reply with secret
-            ObjectOutputStream objOut = new ObjectOutputStream(socket.getOutputStream());
-            objOut.writeUTF(args[1]);
-            objOut.flush();
 
-            // Read input stream while is connected
-            while (socket.isConnected() && !socket.isClosed() && !socket.isInputShutdown()) {
-                readCommandExecuteAndRespond(socket.getInputStream(), objOut);
+            String secret = args[1];
+            DataOutputStream output = new DataOutputStream(socket.getOutputStream());
+            // Reply with secret
+            output.writeUTF(secret);
+            output.flush();
+
+            boolean threadCreated = false;
+            try {
+                DataInputStream input = new DataInputStream(socket.getInputStream());
+
+                RemoteThreadFactory threadFactory = readObject(input, RemoteThreadFactory.class);
+
+                Thread sandboxThread = threadFactory.createThread(secret, socket, throwableReference);
+
+                output.writeBoolean(true);
+                output.flush();
+
+                sandboxThread.start();
+                threadCreated = true;
+                sandboxThread.join();
+            } finally {
+                if (!threadCreated) {
+                    output.writeBoolean(false);
+                    output.flush();
+                }
             }
+        }
+        Throwable throwable = throwableReference.get();
+        if (throwable != null) {
+            throw throwable;
         }
     }
 }

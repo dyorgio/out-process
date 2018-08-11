@@ -1,5 +1,5 @@
 /** *****************************************************************************
- * Copyright 2017 See AUTHORS file.
+ * Copyright 2018 See AUTHORS file.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,14 @@
 package dyorgio.runtime.out.process;
 
 import static dyorgio.runtime.out.process.OutProcessUtils.getCurrentClasspath;
+import static dyorgio.runtime.out.process.OutProcessUtils.readObject;
+import static dyorgio.runtime.out.process.OutProcessUtils.writeObject;
+import dyorgio.runtime.out.process.entrypoint.DefaultThreadFactory;
 import dyorgio.runtime.out.process.entrypoint.RemoteMain;
+import dyorgio.runtime.out.process.entrypoint.RemoteThreadFactory;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.NotSerializableException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -66,7 +70,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      * @throws Exception If cannot create external JVM.
      */
     public OutProcessExecutorService(String... javaOptions) throws Exception {
-        this(new DefaultProcessBuilderFactory(), null, javaOptions);
+        this(new DefaultThreadFactory(), new DefaultProcessBuilderFactory(), null, javaOptions);
     }
 
     /**
@@ -79,7 +83,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      * @throws Exception If cannot create external JVM.
      */
     public OutProcessExecutorService(String classpath, String[] javaOptions) throws Exception {
-        this(new DefaultProcessBuilderFactory(), classpath, javaOptions);
+        this(new DefaultThreadFactory(), new DefaultProcessBuilderFactory(), classpath, javaOptions);
     }
 
     /**
@@ -95,18 +99,20 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      * <code>null</code>.
      */
     public OutProcessExecutorService(ProcessBuilderFactory processBuilderFactory, String... javaOptions) throws Exception {
-        this(processBuilderFactory, null, javaOptions);
+        this(new DefaultThreadFactory(), processBuilderFactory, null, javaOptions);
     }
 
     /**
      * Creates an instance with specific processBuilderFactory, classpath and
      * java options
      *
+     * @param threadFactory A factory to create remote Thread on out process.
      * @param processBuilderFactory A factory to convert a
      * <code>List&lt;String&gt;</code> to <code>ProcessBuilder</code>.
      * @param classpath JVM classpath, if <code>null</code> will use current
      * thread classpath.
      * @param javaOptions JVM options (ex:"-xmx32m")
+     * @see RemoteThreadFactory
      * @see ProcessBuilderFactory
      * @see ProcessBuilder
      * @see OutProcessUtils#getCurrentClasspath()
@@ -114,12 +120,15 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      * @throws NullPointerException If <code>processBuilderFactory</code> is
      * <code>null</code>.
      */
-    public OutProcessExecutorService(ProcessBuilderFactory processBuilderFactory, String classpath, String[] javaOptions) throws Exception {
+    public OutProcessExecutorService(RemoteThreadFactory threadFactory, ProcessBuilderFactory processBuilderFactory, String classpath, String[] javaOptions) throws Exception {
+        if (threadFactory == null) {
+            throw new NullPointerException("Thread Factory cannot be null.");
+        }
         if (processBuilderFactory == null) {
             throw new NullPointerException("Process Builder Factory cannot be null.");
         }
         this.processBuilderFactory = processBuilderFactory;
-        this.pipe = new PipeServer(classpath == null ? getCurrentClasspath() : classpath, javaOptions);
+        this.pipe = new PipeServer(threadFactory, classpath == null ? getCurrentClasspath() : classpath, javaOptions);
     }
 
     @Override
@@ -164,6 +173,11 @@ public class OutProcessExecutorService extends AbstractExecutorService {
 
     @Override
     public void execute(Runnable runnable) {
+        if (shutdown) {
+            throw new RejectedExecutionException("Task " + runnable.toString()
+                    + " rejected from "
+                    + this.toString());
+        }
         if (System.getProperty(RUNNING_AS_OUT_PROCESS) != null) {
             runnable.run();
         } else if (runnable instanceof SerializableFutureTask) {
@@ -186,11 +200,13 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      */
     private class PipeServer extends Thread {
 
+        private final RemoteThreadFactory threadFactory;
         private final ServerSocket server;
         private final String secret;
         private final Process process;
 
-        PipeServer(String classpath, String... javaOptions) throws Exception {
+        PipeServer(RemoteThreadFactory threadFactory, String classpath, String... javaOptions) throws Exception {
+            this.threadFactory = threadFactory;
             Random r = new Random(System.currentTimeMillis());
             ServerSocket tmpServer = null;
             while (true) {
@@ -202,7 +218,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
                 }
             }
             this.server = tmpServer;
-            this.secret = r.nextLong() + ":" + r.nextLong() + ":" + r.nextLong() + ":" + r.nextLong();
+            this.secret = r.nextLong() + ":" + r.nextLong();
 
             List<String> commandList = new ArrayList<>();
 
@@ -227,34 +243,43 @@ public class OutProcessExecutorService extends AbstractExecutorService {
                 try {
                     Socket s = server.accept();
                     if (s != null) {
-                        ObjectInputStream objStream = new ObjectInputStream(s.getInputStream());
-                        String clientSecret = objStream.readUTF();
+
+                        DataInputStream input = new DataInputStream(s.getInputStream());
+
+                        String clientSecret = input.readUTF();
                         if (clientSecret.equals(secret)) {
 
-                            SerializableFutureTask task;
+                            DataOutputStream output = new DataOutputStream(s.getOutputStream());
+                            writeObject(output, threadFactory);
 
-                            while (!shutdown) {
-                                task = toProcess.poll(1, TimeUnit.SECONDS);
-                                if (task != null) {
-                                    try {
-                                        ObjectOutputStream objOut = new ObjectOutputStream(s.getOutputStream());
-                                        objOut.writeObject(task.callable);
-                                        objOut.flush();
+                            if (input.readBoolean()) {
 
-                                        if (objStream.readBoolean()) {
-                                            task.result = (Serializable) objStream.readObject();
-                                        } else {
-                                            task.executionException = new ExecutionException((Throwable) objStream.readObject());
-                                        }
-                                    } catch (Throwable e) {
-                                        task.executionException = new ExecutionException(e);
-                                    } finally {
-                                        task.done = true;
-                                        synchronized (task) {
-                                            task.notifyAll();
+                                SerializableFutureTask task;
+
+                                while (!shutdown) {
+                                    task = toProcess.poll(1, TimeUnit.SECONDS);
+                                    if (task != null) {
+                                        try {
+                                            writeObject(output, task.callable);
+
+                                            if (input.readBoolean()) {
+                                                task.result = readObject(input, Serializable.class);
+                                            } else {
+                                                task.executionException = new ExecutionException(readObject(input, Throwable.class));
+                                            }
+                                        } catch (Throwable e) {
+                                            task.executionException = new ExecutionException(e);
+                                            shutdown = true;
+                                        } finally {
+                                            task.done = true;
+                                            synchronized (task) {
+                                                task.notifyAll();
+                                            }
                                         }
                                     }
                                 }
+                            } else {
+                                s.close();
                             }
                         } else {
                             s.close();

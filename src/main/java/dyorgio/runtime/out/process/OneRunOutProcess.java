@@ -1,5 +1,5 @@
 /** *****************************************************************************
- * Copyright 2017 See AUTHORS file.
+ * Copyright 2018 See AUTHORS file.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -222,13 +222,13 @@ public class OneRunOutProcess {
                 Process process = processBuilderFactory.create(commandList).start();
 
                 returnCode = process.waitFor();
-                
+
                 boolean error = ipcBuffer.get() == 0;
 
                 byte[] buffer = new byte[ipcBuffer.getInt()];
                 ipcBuffer.get(buffer);
-                Object obj = unserialize(buffer);
-                
+                Object obj = unserialize(buffer, Object.class);
+
                 if (error) {
                     throw new ExecutionException((Throwable) obj);
                 }

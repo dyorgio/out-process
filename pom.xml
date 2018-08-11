@@ -58,10 +58,16 @@
         <version.animal.sniffer.maven.plugin>1.16</version.animal.sniffer.maven.plugin>
         <version.maven.release.plugin>2.5.3</version.maven.release.plugin>
         
+        <version.fst>2.57</version.fst>
         <version.junit>4.12</version.junit>
     </properties>
     
     <dependencies>
+        <dependency>
+            <groupId>de.ruedigermoeller</groupId>
+            <artifactId>fst</artifactId>
+            <version>${version.fst}</version>
+        </dependency>
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>

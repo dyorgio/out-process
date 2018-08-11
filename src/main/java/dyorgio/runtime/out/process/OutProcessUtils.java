@@ -1,5 +1,5 @@
 /** *****************************************************************************
- * Copyright 2017 See AUTHORS file.
+ * Copyright 2018 See AUTHORS file.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,20 +15,19 @@
  ***************************************************************************** */
 package dyorgio.runtime.out.process;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.NotSerializableException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import org.nustaq.serialization.FSTConfiguration;
 
 /**
  * Constants and utility methods used in an out process execution.
@@ -41,6 +40,7 @@ public class OutProcessUtils {
      * System property flag to identify an out process code at runtime.
      */
     public static final String RUNNING_AS_OUT_PROCESS = "$RunnningAsOutProcess";
+    private static final FSTConfiguration FST_CONFIGURATION = FSTConfiguration.createDefaultConfiguration();
 
     /**
      * Get current Thread classpath.
@@ -51,7 +51,11 @@ public class OutProcessUtils {
     public static String getCurrentClasspath() {
         StringBuilder buffer = new StringBuilder();
         for (URL url : ((URLClassLoader) (Thread.currentThread().getContextClassLoader())).getURLs()) {
-            buffer.append(new File(url.getPath()));
+            String urlStr = url.getPath();
+            urlStr = urlStr.replaceFirst("jar:", "");
+            urlStr = urlStr.replaceFirst("file:", "");
+
+            buffer.append(new File(urlStr));
             buffer.append(File.pathSeparatorChar);
         }
         String classpath = buffer.toString();
@@ -76,6 +80,12 @@ public class OutProcessUtils {
                 int index = url.lastIndexOf('!');
                 if (index != -1) {
                     url = url.substring(0, index);
+                } else {
+                    try {
+                        url = new File(clazz.getProtectionDomain().getCodeSource().getLocation().toURI()).getAbsolutePath();
+                    } catch (URISyntaxException ex) {
+                        throw new RuntimeException(ex);
+                    }
                 }
                 urls.add(url);
             }
@@ -106,34 +116,67 @@ public class OutProcessUtils {
      * <code>false</code>: An <code>Exception</code> occurred.
      * <code>Exception</code> is wrote on <code>objOut</code><br>
      *
-     * @param inputStream A source of the command.
-     * @param objOut The output for result.
-     * @throws IOException
-     * @see ObjectInputStream
-     * @see Callable
-     * @see ObjectOutputStream
+     * @param input
+     * @param output
+     * @throws Exception
      */
-    public static void readCommandExecuteAndRespond(InputStream inputStream, ObjectOutputStream objOut) throws Exception {
+    public static void readCommandExecuteAndRespond(DataInputStream input, DataOutputStream output) throws Exception {
         try {
             // Read current command
-            Callable<Serializable> callable = (Callable<Serializable>) new ObjectInputStream(inputStream).readObject();
+            Callable<Serializable> callable = (Callable) readObject(input, Callable.class);
 
             Serializable result = callable.call();
             // Reply with result
-            objOut.writeBoolean(true);
-            objOut.writeObject(result);
-            objOut.flush();
+            output.writeBoolean(true);
+            writeObject(output, result);
         } catch (Throwable e) {
             // Reply with error
-            objOut.writeBoolean(false);
+            output.writeBoolean(false);
             try {
-                objOut.writeObject(e);
+                writeObject(output, e);
             } catch (NotSerializableException ex) {
                 // Reply with safe error (without not-serializable objects).
-                objOut.writeObject(new RuntimeException(ex.getMessage()));
+                writeObject(output, new RuntimeException(ex.getMessage()));
             }
-            objOut.flush();
         }
+    }
+
+    /**
+     * Read object from stream.
+     *
+     * @param <T> Object type.
+     * @param input Source InputStream.
+     * @param clazz Object class.
+     * @return Object instance.
+     * @throws IOException
+     */
+    public static <T> T readObject(DataInputStream input, Class<T> clazz) throws IOException {
+        int len = input.readInt();
+        byte buffer[] = new byte[len]; // this could be reused !
+        int readed;
+        while (len > 0) {
+            readed = input.read(buffer, buffer.length - len, len);
+            if (readed != -1) {
+                len -= readed;
+            } else {
+                break;
+            }
+        }
+        return (T) unserialize(buffer, clazz);
+    }
+
+    /**
+     * Write object to stream.
+     *
+     * @param output Destiny OutputStream.
+     * @param obj Object instance.
+     * @throws IOException
+     */
+    public static void writeObject(DataOutputStream output, Object obj) throws IOException {
+        byte[] data = serialize(obj);
+        output.writeInt(data.length);
+        output.write(data);
+        output.flush();
     }
 
     /**
@@ -141,26 +184,20 @@ public class OutProcessUtils {
      *
      * @param obj Object to be serialized.
      * @return Binary representation of object parameter.
-     * @throws IOException
      */
-    public static byte[] serialize(Serializable obj) throws IOException {
-        try (ByteArrayOutputStream bao = new ByteArrayOutputStream()) {
-            ObjectOutputStream oo = new ObjectOutputStream(bao);
-            oo.writeObject(obj);
-            oo.flush();
-            return bao.toByteArray();
-        }
+    public static byte[] serialize(Object obj) {
+        return FST_CONFIGURATION.asByteArray(obj);
     }
 
     /**
      * Converts a byte array to object.
      *
+     * @param <T>
      * @param data Byte array to be unserialized.
+     * @param clazz
      * @return A java object.
-     * @throws IOException
-     * @throws ClassNotFoundException
      */
-    public static Object unserialize(byte[] data) throws IOException, ClassNotFoundException {
-        return new ObjectInputStream(new ByteArrayInputStream(data)).readObject();
+    public static <T> T unserialize(byte[] data, Class<T> clazz) {
+        return (T) FST_CONFIGURATION.asObject(data);
     }
 }
