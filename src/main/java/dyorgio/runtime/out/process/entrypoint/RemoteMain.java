@@ -17,11 +17,10 @@ package dyorgio.runtime.out.process.entrypoint;
 
 import dyorgio.runtime.out.process.OutProcessExecutorService;
 import static dyorgio.runtime.out.process.OutProcessUtils.RUNNING_AS_OUT_PROCESS;
-import static dyorgio.runtime.out.process.OutProcessUtils.readObject;
+import static dyorgio.runtime.out.process.OutProcessUtils.readCommandExecuteAndRespond;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.net.Socket;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * The entry point of an out process created by an
@@ -35,41 +34,21 @@ public class RemoteMain {
     public static void main(String[] args) throws Throwable {
         // Identify as an out process execution
         System.setProperty(RUNNING_AS_OUT_PROCESS, "true");
-        
-        final AtomicReference<Throwable> throwableReference = new AtomicReference();
+
         // Open socket with the port received as parameter
         try (Socket socket = new Socket("localhost", Integer.valueOf(args[0]))) {
 
-            String secret = args[1];
+            // In/Out streams.
+            DataInputStream input = new DataInputStream(socket.getInputStream());
             DataOutputStream output = new DataOutputStream(socket.getOutputStream());
             // Reply with secret
-            output.writeUTF(secret);
+            output.writeUTF(args[1]);
             output.flush();
 
-            boolean threadCreated = false;
-            try {
-                DataInputStream input = new DataInputStream(socket.getInputStream());
-
-                RemoteThreadFactory threadFactory = readObject(input, RemoteThreadFactory.class);
-
-                Thread sandboxThread = threadFactory.createThread(secret, socket, throwableReference);
-
-                output.writeBoolean(true);
-                output.flush();
-
-                sandboxThread.start();
-                threadCreated = true;
-                sandboxThread.join();
-            } finally {
-                if (!threadCreated) {
-                    output.writeBoolean(false);
-                    output.flush();
-                }
+            // Read input stream while is connected
+            while (socket.isConnected() && !socket.isClosed() && !socket.isInputShutdown()) {
+                readCommandExecuteAndRespond(input, output);
             }
-        }
-        Throwable throwable = throwableReference.get();
-        if (throwable != null) {
-            throw throwable;
         }
     }
 }

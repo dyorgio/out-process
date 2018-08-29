@@ -18,11 +18,10 @@ package dyorgio.runtime.out.process;
 import static dyorgio.runtime.out.process.OutProcessUtils.getCurrentClasspath;
 import static dyorgio.runtime.out.process.OutProcessUtils.readObject;
 import static dyorgio.runtime.out.process.OutProcessUtils.writeObject;
-import dyorgio.runtime.out.process.entrypoint.DefaultThreadFactory;
 import dyorgio.runtime.out.process.entrypoint.RemoteMain;
-import dyorgio.runtime.out.process.entrypoint.RemoteThreadFactory;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.NotSerializableException;
 import java.io.Serializable;
 import java.net.ServerSocket;
@@ -70,7 +69,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      * @throws Exception If cannot create external JVM.
      */
     public OutProcessExecutorService(String... javaOptions) throws Exception {
-        this(new DefaultThreadFactory(), new DefaultProcessBuilderFactory(), null, javaOptions);
+        this(new DefaultProcessBuilderFactory(), null, javaOptions);
     }
 
     /**
@@ -83,7 +82,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      * @throws Exception If cannot create external JVM.
      */
     public OutProcessExecutorService(String classpath, String[] javaOptions) throws Exception {
-        this(new DefaultThreadFactory(), new DefaultProcessBuilderFactory(), classpath, javaOptions);
+        this(new DefaultProcessBuilderFactory(), classpath, javaOptions);
     }
 
     /**
@@ -99,14 +98,13 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      * <code>null</code>.
      */
     public OutProcessExecutorService(ProcessBuilderFactory processBuilderFactory, String... javaOptions) throws Exception {
-        this(new DefaultThreadFactory(), processBuilderFactory, null, javaOptions);
+        this(processBuilderFactory, null, javaOptions);
     }
 
     /**
      * Creates an instance with specific processBuilderFactory, classpath and
      * java options
      *
-     * @param threadFactory A factory to create remote Thread on out process.
      * @param processBuilderFactory A factory to convert a
      * <code>List&lt;String&gt;</code> to <code>ProcessBuilder</code>.
      * @param classpath JVM classpath, if <code>null</code> will use current
@@ -120,15 +118,12 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      * @throws NullPointerException If <code>processBuilderFactory</code> is
      * <code>null</code>.
      */
-    public OutProcessExecutorService(RemoteThreadFactory threadFactory, ProcessBuilderFactory processBuilderFactory, String classpath, String[] javaOptions) throws Exception {
-        if (threadFactory == null) {
-            throw new NullPointerException("Thread Factory cannot be null.");
-        }
+    public OutProcessExecutorService(ProcessBuilderFactory processBuilderFactory, String classpath, String[] javaOptions) throws Exception {
         if (processBuilderFactory == null) {
             throw new NullPointerException("Process Builder Factory cannot be null.");
         }
         this.processBuilderFactory = processBuilderFactory;
-        this.pipe = new PipeServer(threadFactory, classpath == null ? getCurrentClasspath() : classpath, javaOptions);
+        this.pipe = new PipeServer(classpath == null ? getCurrentClasspath() : classpath, javaOptions);
     }
 
     @Override
@@ -200,24 +195,14 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      */
     private class PipeServer extends Thread {
 
-        private final RemoteThreadFactory threadFactory;
         private final ServerSocket server;
         private final String secret;
         private final Process process;
 
-        PipeServer(RemoteThreadFactory threadFactory, String classpath, String... javaOptions) throws Exception {
-            this.threadFactory = threadFactory;
-            Random r = new Random(System.currentTimeMillis());
-            ServerSocket tmpServer = null;
-            while (true) {
-                try {
-                    tmpServer = new ServerSocket(1025 + r.nextInt(65535 - 1024));
-                    break;
-                } catch (Exception e) {
-
-                }
-            }
-            this.server = tmpServer;
+        PipeServer(String classpath, String... javaOptions) throws Exception {
+            super("OutProcess-PipeServer");
+            this.server = new ServerSocket(0);
+            Random r = new Random(System.nanoTime());
             this.secret = r.nextLong() + ":" + r.nextLong();
 
             List<String> commandList = new ArrayList<>();
@@ -239,7 +224,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
 
         @Override
         public void run() {
-            while (!isInterrupted()) {
+            while (!shutdown && !isInterrupted()) {
                 try {
                     Socket s = server.accept();
                     if (s != null) {
@@ -250,50 +235,52 @@ public class OutProcessExecutorService extends AbstractExecutorService {
                         if (clientSecret.equals(secret)) {
 
                             DataOutputStream output = new DataOutputStream(s.getOutputStream());
-                            writeObject(output, threadFactory);
 
-                            if (input.readBoolean()) {
+                            SerializableFutureTask task;
 
-                                SerializableFutureTask task;
+                            while (!shutdown) {
+                                task = toProcess.poll(1, TimeUnit.SECONDS);
+                                if (task != null) {
+                                    try {
+                                        writeObject(output, task.callable);
 
-                                while (!shutdown) {
-                                    task = toProcess.poll(1, TimeUnit.SECONDS);
-                                    if (task != null) {
-                                        try {
-                                            writeObject(output, task.callable);
-
-                                            if (input.readBoolean()) {
-                                                task.result = readObject(input, Serializable.class);
-                                            } else {
-                                                task.executionException = new ExecutionException(readObject(input, Throwable.class));
-                                            }
-                                        } catch (Throwable e) {
-                                            task.executionException = new ExecutionException(e);
-                                            shutdown = true;
-                                        } finally {
-                                            task.done = true;
-                                            synchronized (task) {
-                                                task.notifyAll();
-                                            }
+                                        if (input.readBoolean()) {
+                                            task.result = readObject(input, Serializable.class);
+                                        } else {
+                                            task.executionException = new ExecutionException(readObject(input, Throwable.class));
+                                        }
+                                    } catch (EOFException e) {
+                                        task.executionException = new ExecutionException(new RejectedExecutionException("Closed OutProcess socket."));
+                                        shutdown = true;
+                                    } catch (Throwable e) {
+                                        task.executionException = new ExecutionException(e);
+                                        shutdown = true;
+                                    } finally {
+                                        task.done = true;
+                                        synchronized (task) {
+                                            task.notifyAll();
                                         }
                                     }
                                 }
-                            } else {
-                                s.close();
                             }
                         } else {
                             s.close();
                         }
                     }
                 } catch (Exception e) {
+                    break;
                 }
             }
         }
 
         public void close() {
             try {
-                interrupt();
                 server.close();
+            } catch (Exception e) {
+            }
+
+            try {
+                interrupt();
             } catch (Exception e) {
             }
 
