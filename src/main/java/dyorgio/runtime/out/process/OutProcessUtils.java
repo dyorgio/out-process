@@ -25,6 +25,7 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import org.nustaq.serialization.FSTConfiguration;
@@ -42,6 +43,25 @@ public class OutProcessUtils {
     public static final String RUNNING_AS_OUT_PROCESS = "$RunnningAsOutProcess";
     private static final FSTConfiguration FST_CONFIGURATION = FSTConfiguration.createDefaultConfiguration();
 
+    private static boolean IS_MAC, IS_WINDOWS, IS_LINUX;
+
+    static {
+        try {
+            String OS = System.getProperty("os.name", "generic").toLowerCase(Locale.ENGLISH);
+            if ((OS.contains("mac")) || (OS.contains("darwin"))) {
+                IS_MAC = true;
+            } else if (OS.contains("win")) {
+                IS_WINDOWS = true;
+            } else if (OS.contains("nux")) {
+                IS_LINUX = true;
+            } else {
+                throw new RuntimeException("Unsupported OS:" + OS);
+            }
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
+        }
+    }
+
     /**
      * Get current Thread classpath.
      *
@@ -53,6 +73,9 @@ public class OutProcessUtils {
         for (URL url : ((URLClassLoader) (Thread.currentThread().getContextClassLoader())).getURLs()) {
             String urlStr = url.getPath();
             urlStr = urlStr.replaceFirst("jar:", "");
+            if (IS_WINDOWS) {
+                urlStr = urlStr.replaceFirst("file:\\/", "");
+            }
             urlStr = urlStr.replaceFirst("file:", "");
 
             buffer.append(new File(urlStr));
@@ -75,8 +98,6 @@ public class OutProcessUtils {
         for (Class clazz : classes) {
             if (clazz != null) {
                 String url = clazz.getResource('/' + clazz.getName().replace('.', '/') + ".class").toExternalForm();
-                url = url.replaceFirst("jar:", "");
-                url = url.replaceFirst("file:", "");
                 int index = url.lastIndexOf('!');
                 if (index != -1) {
                     url = url.substring(0, index);
@@ -87,6 +108,12 @@ public class OutProcessUtils {
                         throw new RuntimeException(ex);
                     }
                 }
+                url = url.replaceFirst("jar:", "");
+                if (IS_WINDOWS) {
+                    url = url.replaceFirst("file:\\/", "");
+                }
+                url = url.replaceFirst("file:", "");
+
                 urls.add(url);
             }
 
