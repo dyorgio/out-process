@@ -42,7 +42,7 @@
     
     <scm>
         <connection>scm:git:git@github.com:dyorgio/out-process.git</connection>
-        <developerConnection>scm:git:git@github.com:dyorgio/out-process.git</developerConnection>
+        <developerConnection>scm:git:git@out-process.github.com:dyorgio/out-process.git</developerConnection>
         <url>https://github.com/dyorgio/out-process.git</url>
         <tag>HEAD</tag>
     </scm>
