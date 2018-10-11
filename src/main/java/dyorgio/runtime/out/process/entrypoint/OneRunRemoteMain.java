@@ -20,6 +20,8 @@ import static dyorgio.runtime.out.process.OutProcessUtils.RUNNING_AS_OUT_PROCESS
 import static dyorgio.runtime.out.process.OutProcessUtils.serialize;
 import static dyorgio.runtime.out.process.OutProcessUtils.unserialize;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
 import java.io.RandomAccessFile;
 import java.io.Serializable;
 import java.nio.MappedByteBuffer;
@@ -39,7 +41,13 @@ public class OneRunRemoteMain {
         // Identify as an out process execution
         System.setProperty(RUNNING_AS_OUT_PROCESS, "true");
 
-        try (RandomAccessFile ipcRaf = new RandomAccessFile(new File(args[0]), "rw")) {
+        try (RandomAccessFile ipcRaf = new RandomAccessFile(new File(args[0]), "rw");
+                PrintStream output = args.length == 1 ? null : new PrintStream(new FileOutputStream(args[1]), true);
+                PrintStream err = args.length == 1 ? null : new PrintStream(new FileOutputStream(args[2]), true)) {
+            if (output != null) {
+                System.setOut(output);
+                System.setErr(err);
+            }
             MappedByteBuffer ipcBuffer = ipcRaf.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, ipcRaf.length());
             byte[] data;
             try {

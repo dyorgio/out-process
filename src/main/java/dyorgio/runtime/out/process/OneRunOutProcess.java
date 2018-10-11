@@ -21,6 +21,7 @@ import static dyorgio.runtime.out.process.OutProcessUtils.serialize;
 import static dyorgio.runtime.out.process.OutProcessUtils.unserialize;
 import dyorgio.runtime.out.process.entrypoint.OneRunRemoteMain;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.RandomAccessFile;
 import java.io.Serializable;
 import java.nio.MappedByteBuffer;
@@ -204,35 +205,77 @@ public class OneRunOutProcess {
         try {
             int returnCode;
             try (RandomAccessFile ipcRaf = new RandomAccessFile(ipcFile, "rw")) {
-                MappedByteBuffer ipcBuffer = ipcRaf.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, inBufferSize + outBufferSize);
-                byte[] data = serialize(callable);
-                ipcBuffer.putInt(data.length);
-                ipcBuffer.put(data);
+                try (FileChannel ipcFC = ipcRaf.getChannel()) {
+                    MappedByteBuffer ipcBuffer = ipcFC.map(FileChannel.MapMode.READ_WRITE, 0, inBufferSize + outBufferSize);
+                    byte[] data = serialize(callable);
+                    ipcBuffer.putInt(data.length);
+                    ipcBuffer.put(data);
 
-                // create out process command
-                List<String> commandList = new ArrayList<>();
-                commandList.add(System.getProperty("java.home") + "/bin/java");
-                commandList.addAll(Arrays.asList(javaOptions));
-                commandList.add("-cp");
-                commandList.add(classpath);
-                commandList.add(OneRunRemoteMain.class.getName());
-                commandList.add(ipcFile.getAbsolutePath());
+                    // create out process command
+                    List<String> commandList = new ArrayList<>();
+                    commandList.add("\"" + System.getProperty("java.home") + File.separatorChar + "bin" + File.separatorChar + "java\"");
+                    commandList.addAll(Arrays.asList(javaOptions));
+                    commandList.add("-cp");
+                    commandList.add("\"" + classpath + "\"");
+                    commandList.add(OneRunRemoteMain.class.getName());
+                    commandList.add("\"" + ipcFile.getAbsolutePath() + "\"");
 
-                // adjust in processBuilderFactory and starts
-                Process process = processBuilderFactory.create(commandList).start();
+                    ProcessBuilder builder = processBuilderFactory.create(commandList);
 
-                returnCode = process.waitFor();
+                    File outputFile = null;
+                    File errFile = null;
 
-                boolean error = ipcBuffer.get() == 0;
+                    if (builder.redirectOutput() != ProcessBuilder.Redirect.INHERIT) {
 
-                byte[] buffer = new byte[ipcBuffer.getInt()];
-                ipcBuffer.get(buffer);
-                Object obj = unserialize(buffer, Object.class);
+                        commandList = new ArrayList<>(builder.command());
 
-                if (error) {
-                    throw new ExecutionException((Throwable) obj);
+                        // Create tmp output, err files
+                        outputFile = File.createTempFile("out-process", ".out", tmpDir);
+                        outputFile.deleteOnExit();
+                        errFile = File.createTempFile("out-process", ".err", tmpDir);
+                        errFile.deleteOnExit();
+                        
+                        // Append to final command
+                        commandList.add("\"" + outputFile.getAbsolutePath() + "\"");
+                        commandList.add("\"" + errFile.getAbsolutePath() + "\"");
+                        builder.command(commandList);
+                    }
+
+                    // adjust in processBuilderFactory and starts
+                    Process process = builder.start();
+
+                    returnCode = process.waitFor();
+
+                    if (outputFile != null) {
+                        byte[] buffer = new byte[1024];
+                        int readed;
+                        try (FileInputStream input = new FileInputStream(outputFile)) {
+                            while ((readed = input.read(buffer)) != -1) {
+                                System.out.write(buffer, 0, readed);
+                            }
+                        } finally {
+                            outputFile.delete();
+                        }
+                        try (FileInputStream input = new FileInputStream(errFile)) {
+                            while ((readed = input.read(buffer)) != -1) {
+                                System.err.write(buffer, 0, readed);
+                            }
+                        } finally {
+                            errFile.delete();
+                        }
+                    }
+
+                    boolean error = ipcBuffer.get() == 0;
+
+                    byte[] buffer = new byte[ipcBuffer.getInt()];
+                    ipcBuffer.get(buffer);
+                    Object obj = buffer.length == 0 ? null : unserialize(buffer, Object.class);
+
+                    if (error && obj != null) {
+                        throw new ExecutionException((Throwable) obj);
+                    }
+                    return new OutProcessResult((Serializable) obj, returnCode);
                 }
-                return new OutProcessResult((Serializable) obj, returnCode);
             }
         } finally {
             ipcFile.delete();
