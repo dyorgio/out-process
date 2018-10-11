@@ -22,6 +22,7 @@ import dyorgio.runtime.out.process.entrypoint.RemoteMain;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
+import java.io.File;
 import java.io.NotSerializableException;
 import java.io.Serializable;
 import java.net.ServerSocket;
@@ -207,7 +208,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
 
             List<String> commandList = new ArrayList<>();
 
-            commandList.add(System.getProperty("java.home") + "/bin/java");
+            commandList.add(System.getProperty("java.home") + File.separatorChar + "bin" + File.separatorChar + "java");
             commandList.addAll(Arrays.asList(javaOptions));
             commandList.add("-cp");
             commandList.add(classpath);

@@ -213,12 +213,12 @@ public class OneRunOutProcess {
 
                     // create out process command
                     List<String> commandList = new ArrayList<>();
-                    commandList.add("\"" + System.getProperty("java.home") + File.separatorChar + "bin" + File.separatorChar + "java\"");
+                    commandList.add(System.getProperty("java.home") + File.separatorChar + "bin" + File.separatorChar + "java");
                     commandList.addAll(Arrays.asList(javaOptions));
                     commandList.add("-cp");
-                    commandList.add("\"" + classpath + "\"");
+                    commandList.add(classpath);
                     commandList.add(OneRunRemoteMain.class.getName());
-                    commandList.add("\"" + ipcFile.getAbsolutePath() + "\"");
+                    commandList.add(ipcFile.getAbsolutePath());
 
                     ProcessBuilder builder = processBuilderFactory.create(commandList);
 
