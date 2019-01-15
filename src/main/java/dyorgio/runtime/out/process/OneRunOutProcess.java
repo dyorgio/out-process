@@ -207,9 +207,10 @@ public class OneRunOutProcess {
             try (RandomAccessFile ipcRaf = new RandomAccessFile(ipcFile, "rw")) {
                 try (FileChannel ipcFC = ipcRaf.getChannel()) {
                     MappedByteBuffer ipcBuffer = ipcFC.map(FileChannel.MapMode.READ_WRITE, 0, inBufferSize + outBufferSize);
-                    byte[] data = serialize(callable);
-                    ipcBuffer.putInt(data.length);
-                    ipcBuffer.put(data);
+                    int length[] = new int[1];
+                    byte[] data = serialize(callable, length);
+                    ipcBuffer.putInt(length[0]);
+                    ipcBuffer.put(data, 0, length[0]);
 
                     // create out process command
                     List<String> commandList = new ArrayList<>();

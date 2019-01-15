@@ -20,7 +20,9 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.NotSerializableException;
+import java.io.PrintWriter;
 import java.io.Serializable;
+import java.io.StringWriter;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -41,7 +43,15 @@ public class OutProcessUtils {
      * System property flag to identify an out process code at runtime.
      */
     public static final String RUNNING_AS_OUT_PROCESS = "$RunnningAsOutProcess";
+    public static final String SHUTDOWN_OUT_PROCESS_REQUESTED = "$ShutdownOutProcessRequested";
     private static final FSTConfiguration FST_CONFIGURATION = FSTConfiguration.createDefaultConfiguration();
+
+    private static ThreadLocal<CachedBuffer> BUFFER_CACHE = new ThreadLocal() {
+        @Override
+        protected Object initialValue() {
+            return new CachedBuffer();
+        }
+    };
 
     private static boolean IS_MAC, IS_WINDOWS, IS_LINUX;
 
@@ -122,12 +132,20 @@ public class OutProcessUtils {
         StringBuilder builder = new StringBuilder();
         for (String url : urls) {
             builder.append(url).append(File.pathSeparatorChar);
-        };
+        }
         if (!urls.isEmpty()) {
             builder.delete(builder.length() - 1, builder.length());
         }
 
         return builder.toString();
+    }
+
+    public static void killOutProcess(String message, Throwable cause) {
+        if (System.getProperty(RUNNING_AS_OUT_PROCESS) != null) {
+            throw new OutProcessDiedException(message, cause);
+        } else {
+            throw new RuntimeException("Current JVM is not a OutProcess JVM, cannot kill it.");
+        }
     }
 
     /**
@@ -145,9 +163,10 @@ public class OutProcessUtils {
      *
      * @param input
      * @param output
+     * @param length Buffer to receive count of bytes wrote to output.
      * @throws Exception
      */
-    public static void readCommandExecuteAndRespond(DataInputStream input, DataOutputStream output) throws Exception {
+    public static void readCommandExecuteAndRespond(DataInputStream input, DataOutputStream output, int[] length) throws Exception {
         try {
             // Read current command
             Callable<Serializable> callable = (Callable) readObject(input, Callable.class);
@@ -155,15 +174,15 @@ public class OutProcessUtils {
             Serializable result = callable.call();
             // Reply with result
             output.writeBoolean(true);
-            writeObject(output, result);
+            writeObject(output, result, length);
         } catch (Throwable e) {
             // Reply with error
             output.writeBoolean(false);
             try {
-                writeObject(output, e);
+                writeObject(output, e, length);
             } catch (NotSerializableException ex) {
                 // Reply with safe error (without not-serializable objects).
-                writeObject(output, new RuntimeException(ex.getMessage()));
+                writeObject(output, new RuntimeException(ex.getMessage()), length);
             }
         }
     }
@@ -178,11 +197,29 @@ public class OutProcessUtils {
      * @throws IOException
      */
     public static <T> T readObject(DataInputStream input, Class<T> clazz) throws IOException {
-        int len = input.readInt();
-        byte buffer[] = new byte[len]; // this could be reused !
+        int originalLen, len = originalLen = input.readInt();
+        byte[] buffer;
+        CachedBuffer cachedBuffer = BUFFER_CACHE.get();
+        byte[] lastBuffer = cachedBuffer.buffer;
+        if (lastBuffer.length < len) {
+            buffer = cachedBuffer.allocate(len);
+        } else {
+            buffer = lastBuffer;
+            cachedBuffer.incrementUsage(len);
+
+            // optimize (don't call everytime). 
+            if (cachedBuffer.cacheCount > 10) {
+                // Verify if average is high (+50%), then mark buffer to reduce (adaptative baby ;)).
+                if (cachedBuffer.average() * 1.5f > len) {
+                    // Reduce buffer in 5%
+                    cachedBuffer.reduce(5f, len);
+                }
+            }
+        }
+
         int readed;
         while (len > 0) {
-            readed = input.read(buffer, buffer.length - len, len);
+            readed = input.read(buffer, originalLen - len, len);
             if (readed != -1) {
                 len -= readed;
             } else {
@@ -197,12 +234,13 @@ public class OutProcessUtils {
      *
      * @param output Destiny OutputStream.
      * @param obj Object instance.
+     * @param length Buffer to receive count of bytes wrote to output.
      * @throws IOException
      */
-    public static void writeObject(DataOutputStream output, Object obj) throws IOException {
-        byte[] data = serialize(obj);
-        output.writeInt(data.length);
-        output.write(data);
+    public static void writeObject(DataOutputStream output, Object obj, int[] length) throws IOException {
+        byte[] data = serialize(obj, length);
+        output.writeInt(length[0]);
+        output.write(data, 0, length[0]);
         output.flush();
     }
 
@@ -210,10 +248,11 @@ public class OutProcessUtils {
      * Converts an object to byte array.
      *
      * @param obj Object to be serialized.
+     * @param length Buffer to receive count of bytes wrote to output.
      * @return Binary representation of object parameter.
      */
-    public static byte[] serialize(Object obj) {
-        return FST_CONFIGURATION.asByteArray(obj);
+    public static byte[] serialize(Object obj, int[] length) {
+        return FST_CONFIGURATION.asSharedByteArray(obj, length);
     }
 
     /**
@@ -226,5 +265,48 @@ public class OutProcessUtils {
      */
     public static <T> T unserialize(byte[] data, Class<T> clazz) {
         return (T) FST_CONFIGURATION.asObject(data);
+    }
+
+    private static class CachedBuffer {
+
+        private byte[] buffer = new byte[32];
+        private float cacheCount = 0;
+        private float count = 0;
+        private float sum = 0f;
+
+        private byte[] allocate(int len) {
+            // DEBUG
+            // System.out.println("Allocating by 15% " + buffer.length + " -> " + (int) (len * 1.15f));
+            buffer = new byte[(int) (len * 1.15f)];
+            count = 1f;
+            cacheCount = 1;
+            sum = len;
+            // DEBUG
+            // System.out.println(Thread.currentThread().getName() + ": " + new Date() + " - Requested: " + len + ",  allocated:" + buffer.length);
+            return buffer;
+        }
+
+        private void reduce(float percent, int minSize) {
+            cacheCount = 1;
+            int newSize = (int) (buffer.length * (1f - (percent / 100f)));
+            if (newSize < minSize) {
+                return;
+            }
+            byte[] buffertmp = new byte[newSize];
+            System.arraycopy(buffer, 0, buffertmp, 0, buffertmp.length);
+            // DEBUG
+            // System.out.println("reduced by " + percent + "% " + buffer.length + " -> " + buffertmp.length);
+            buffer = buffertmp;
+        }
+
+        private float average() {
+            return sum / count;
+        }
+
+        private void incrementUsage(int len) {
+            sum += len;
+            count++;
+            cacheCount++;
+        }
     }
 }

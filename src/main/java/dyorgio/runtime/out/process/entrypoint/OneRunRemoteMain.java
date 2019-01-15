@@ -50,27 +50,28 @@ public class OneRunRemoteMain {
             }
             MappedByteBuffer ipcBuffer = ipcRaf.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, ipcRaf.length());
             byte[] data;
+            int[] length = new int[1];
             try {
                 data = new byte[ipcBuffer.getInt()];
                 ipcBuffer.get(data);
 
                 Serializable result = (Serializable) unserialize(data, Callable.class).call();
-                data = serialize(result);
+                data = serialize(result, length);
                 ipcBuffer.put((byte) 1);
-                ipcBuffer.putInt(data.length);
-                ipcBuffer.put(data);
+                ipcBuffer.putInt(length[0]);
+                ipcBuffer.put(data, 0, length[0]);
             } catch (Throwable e) {
                 try {
-                    data = serialize(e);
+                    data = serialize(e, length);
                     ipcBuffer.put((byte) 0);
-                    ipcBuffer.putInt(data.length);
-                    ipcBuffer.put(data);
+                    ipcBuffer.putInt(length[0]);
+                    ipcBuffer.put(data, 0, length[0]);
                 } catch (Throwable ex) {
                     // Reply with safe error (without not-serializable objects).
-                    data = serialize(new RuntimeException(ex.getMessage()));
+                    data = serialize(new RuntimeException(ex.getMessage()), length);
                     ipcBuffer.put((byte) 0);
-                    ipcBuffer.putInt(data.length);
-                    ipcBuffer.put(data);
+                    ipcBuffer.putInt(length[0]);
+                    ipcBuffer.put(data, 0, length[0]);
                 }
             }
         }

@@ -17,6 +17,7 @@ package dyorgio.runtime.out.process.entrypoint;
 
 import dyorgio.runtime.out.process.OutProcessExecutorService;
 import static dyorgio.runtime.out.process.OutProcessUtils.RUNNING_AS_OUT_PROCESS;
+import static dyorgio.runtime.out.process.OutProcessUtils.SHUTDOWN_OUT_PROCESS_REQUESTED;
 import static dyorgio.runtime.out.process.OutProcessUtils.readCommandExecuteAndRespond;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -44,10 +45,18 @@ public class RemoteMain {
             // Reply with secret
             output.writeUTF(args[1]);
             output.flush();
+            int[] length = new int[1];
 
             // Read input stream while is connected
             while (socket.isConnected() && !socket.isClosed() && !socket.isInputShutdown()) {
-                readCommandExecuteAndRespond(input, output);
+                readCommandExecuteAndRespond(input, output, length);
+            }
+        } finally {
+            // Exit JVM
+            if (Boolean.parseBoolean(System.getProperty(SHUTDOWN_OUT_PROCESS_REQUESTED, "false"))) {
+                System.exit(0);
+            } else {
+                System.exit(1);
             }
         }
     }

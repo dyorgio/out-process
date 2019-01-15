@@ -60,8 +60,8 @@ public class OutProcessExecutorService extends AbstractExecutorService {
 
     private boolean shutdown = false;
     private final ProcessBuilderFactory processBuilderFactory;
-    private final PipeServer pipe;
-    private final SynchronousQueue<SerializableFutureTask> toProcess = new SynchronousQueue<>();
+    private final PipeServer pipeServer;
+    private final SynchronousQueue<SerializableFutureTask> toProcessQueue = new SynchronousQueue<>();
 
     /**
      * Creates an instance with specific java options
@@ -124,7 +124,8 @@ public class OutProcessExecutorService extends AbstractExecutorService {
             throw new NullPointerException("Process Builder Factory cannot be null.");
         }
         this.processBuilderFactory = processBuilderFactory;
-        this.pipe = new PipeServer(classpath == null ? getCurrentClasspath() : classpath, javaOptions);
+        this.pipeServer = new PipeServer(classpath == null ? getCurrentClasspath() : classpath, javaOptions);
+        this.pipeServer.start();
     }
 
     @Override
@@ -135,9 +136,9 @@ public class OutProcessExecutorService extends AbstractExecutorService {
     @Override
     public List<Runnable> shutdownNow() {
         shutdown();
-        pipe.close();
+        pipeServer.close();
         List<Runnable> notProcessed = new ArrayList<>();
-        toProcess.drainTo(notProcessed);
+        toProcessQueue.drainTo(notProcessed);
         return notProcessed;
     }
 
@@ -148,13 +149,13 @@ public class OutProcessExecutorService extends AbstractExecutorService {
 
     @Override
     public boolean isTerminated() {
-        return isShutdown() && !pipe.isAlive();
+        return isShutdown() && !pipeServer.isAlive();
     }
 
     @Override
     public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
-        pipe.join(unit.toMillis(timeout));
-        return pipe.isAlive();
+        pipeServer.join(unit.toMillis(timeout));
+        return pipeServer.isAlive();
     }
 
     @Override
@@ -178,13 +179,13 @@ public class OutProcessExecutorService extends AbstractExecutorService {
             runnable.run();
         } else if (runnable instanceof SerializableFutureTask) {
             try {
-                toProcess.put((SerializableFutureTask) runnable);
+                toProcessQueue.put((SerializableFutureTask) runnable);
             } catch (InterruptedException ex) {
                 throw new RejectedExecutionException(ex);
             }
         } else {
             try {
-                toProcess.put(new SerializableFutureTask(runnable, (Serializable) null));
+                toProcessQueue.put(new SerializableFutureTask(runnable, (Serializable) null));
             } catch (InterruptedException ex) {
                 throw new RejectedExecutionException(ex);
             }
@@ -218,9 +219,6 @@ public class OutProcessExecutorService extends AbstractExecutorService {
 
             // adjust in processBuilderFactory and starts
             process = processBuilderFactory.create(commandList).start();
-
-            // start thread
-            start();
         }
 
         @Override
@@ -238,17 +236,22 @@ public class OutProcessExecutorService extends AbstractExecutorService {
                             DataOutputStream output = new DataOutputStream(s.getOutputStream());
 
                             SerializableFutureTask task;
+                            int length[] = new int[1];
 
                             while (!shutdown) {
-                                task = toProcess.poll(1, TimeUnit.SECONDS);
+                                task = toProcessQueue.poll(1, TimeUnit.SECONDS);
                                 if (task != null) {
                                     try {
-                                        writeObject(output, task.callable);
+                                        writeObject(output, task.callable, length);
 
                                         if (input.readBoolean()) {
                                             task.result = readObject(input, Serializable.class);
                                         } else {
-                                            task.executionException = new ExecutionException(readObject(input, Throwable.class));
+                                            Throwable throwable = readObject(input, Throwable.class);
+                                            task.executionException = new ExecutionException(throwable);
+                                            if (throwable instanceof OutProcessDiedException) {
+                                                shutdownNow();
+                                            }
                                         }
                                     } catch (EOFException e) {
                                         task.executionException = new ExecutionException(new RejectedExecutionException("Closed OutProcess socket."));
@@ -295,10 +298,9 @@ public class OutProcessExecutorService extends AbstractExecutorService {
             } catch (Exception e) {
             }
         }
-
     }
 
-    private static class SerializableFutureTask implements RunnableFuture<Serializable>, Serializable {
+    private static class SerializableFutureTask implements RunnableFuture<Serializable> {
 
         private final Callable<Serializable> callable;
         private boolean done = false;
@@ -373,22 +375,22 @@ public class OutProcessExecutorService extends AbstractExecutorService {
             }
             return result;
         }
-
-        private final class SerializableCall implements CallableSerializable {
-
-            private final Runnable runnable;
-            private final Serializable value;
-
-            private SerializableCall(final Runnable runnable, final Serializable value) {
-                this.runnable = runnable;
-                this.value = value;
-            }
-
-            @Override
-            public Serializable call() throws Exception {
-                runnable.run();
-                return value;
-            }
-        };
     }
+
+    private static final class SerializableCall implements CallableSerializable {
+
+        private final Runnable runnable;
+        private final Serializable value;
+
+        private SerializableCall(final Runnable runnable, final Serializable value) {
+            this.runnable = runnable;
+            this.value = value;
+        }
+
+        @Override
+        public Serializable call() throws Exception {
+            runnable.run();
+            return value;
+        }
+    };
 }
