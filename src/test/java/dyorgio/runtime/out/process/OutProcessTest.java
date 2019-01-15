@@ -38,8 +38,8 @@ import org.junit.Test;
 public class OutProcessTest implements Serializable {
 
     /**
-     * Test if a system variable is saved between executions, always a new JVM
-     * (Not valid for <code>OneRunOutProcess</code>).
+     * Test if a system variable is not saved between executions of
+     * <code>OneRunOutProcess</code>.
      *
      * @see OneRunOutProcess
      */
@@ -52,10 +52,8 @@ public class OutProcessTest implements Serializable {
     }
 
     /**
-     * Test if a system variable is saved between executions, always a new JVM
-     * (Not valid for <code>OneRunOutProcess</code>).
-     *
-     * @see OneRunOutProcess
+     * Test if an Exception is correctly handled by library.
+     * 
      */
     @Test(expected = ExecutionException.class)
     public void testOneRunThrows() throws Throwable {
@@ -112,20 +110,22 @@ public class OutProcessTest implements Serializable {
     }
 
     /**
-     * Test if out of memory is correctly handled by out-process library.
+     * Test if out of memory is correctly handled by library.
      */
     @Test(expected = OutOfMemoryError.class)
     public void testOutProcessOutOfMemory() throws Throwable {
         runInOutProcess(() -> {
             // just create some random data
-            List<byte[]> dummy = new ArrayList<>(100000);
+            int count = 100000;
+            List<byte[]> dummy = new ArrayList<>(count); // ~100mb
             Random r = new Random();
-            while (true) {
+            for (; count > 0; count--) {
                 byte[] data = new byte[1024];
                 r.nextBytes(data);
                 dummy.add(data);
             }
         });
+        Assert.fail("No OutOfMemoryError throwed.");
     }
 
     /**
