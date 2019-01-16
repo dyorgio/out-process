@@ -20,9 +20,7 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.NotSerializableException;
-import java.io.PrintWriter;
 import java.io.Serializable;
-import java.io.StringWriter;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -46,7 +44,7 @@ public class OutProcessUtils {
     public static final String SHUTDOWN_OUT_PROCESS_REQUESTED = "$ShutdownOutProcessRequested";
     private static final FSTConfiguration FST_CONFIGURATION = FSTConfiguration.createDefaultConfiguration();
 
-    private static ThreadLocal<CachedBuffer> BUFFER_CACHE = new ThreadLocal() {
+    private static final ThreadLocal<CachedBuffer> BUFFER_CACHE = new ThreadLocal() {
         @Override
         protected Object initialValue() {
             return new CachedBuffer();
@@ -56,19 +54,15 @@ public class OutProcessUtils {
     private static boolean IS_MAC, IS_WINDOWS, IS_LINUX;
 
     static {
-        try {
-            String OS = System.getProperty("os.name", "generic").toLowerCase(Locale.ENGLISH);
-            if ((OS.contains("mac")) || (OS.contains("darwin"))) {
-                IS_MAC = true;
-            } else if (OS.contains("win")) {
-                IS_WINDOWS = true;
-            } else if (OS.contains("nux")) {
-                IS_LINUX = true;
-            } else {
-                throw new RuntimeException("Unsupported OS:" + OS);
-            }
-        } catch (Exception ex) {
-            throw new RuntimeException(ex);
+        String OS = System.getProperty("os.name", "generic").toLowerCase(Locale.ENGLISH);
+        if ((OS.contains("mac")) || (OS.contains("darwin"))) {
+            IS_MAC = true;
+        } else if (OS.contains("win")) {
+            IS_WINDOWS = true;
+        } else if (OS.contains("nux")) {
+            IS_LINUX = true;
+        } else {
+            throw new RuntimeException("Unsupported OS:" + OS);
         }
     }
 
@@ -289,8 +283,12 @@ public class OutProcessUtils {
         private void reduce(float percent, int minSize) {
             cacheCount = 1;
             int newSize = (int) (buffer.length * (1f - (percent / 100f)));
-            if (newSize < minSize) {
-                return;
+            if (newSize <= minSize) {
+                if (buffer.length != minSize) {
+                    newSize = minSize;
+                } else {
+                    return;
+                }
             }
             byte[] buffertmp = new byte[newSize];
             System.arraycopy(buffer, 0, buffertmp, 0, buffertmp.length);
