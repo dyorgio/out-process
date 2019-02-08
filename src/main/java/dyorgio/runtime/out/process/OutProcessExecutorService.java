@@ -239,7 +239,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
                             int length[] = new int[1];
 
                             while (!shutdown) {
-                                task = toProcessQueue.poll(1, TimeUnit.SECONDS);
+                                task = toProcessQueue.poll(50, TimeUnit.MILLISECONDS);
                                 if (task != null) {
                                     try {
                                         writeObject(output, task.callable, length);
