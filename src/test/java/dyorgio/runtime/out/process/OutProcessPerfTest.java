@@ -46,7 +46,7 @@ public class OutProcessPerfTest implements Serializable {
             long start = System.currentTimeMillis();
             for (int i = 0; i < callsCount; i++) {
                 final int iF = i;
-                results.add(sharedProcess.submit((CallableSerializable<String>) () -> System.setProperty("$testSharedRun", "EXECUTED:" + System.currentTimeMillis())));
+                results.add(sharedProcess.submit((CallableSerializable<String>) () -> System.setProperty("$testSharedRun", "EXECUTED:" + iF)));
             }
 
             for (Future<String> result : results) {
