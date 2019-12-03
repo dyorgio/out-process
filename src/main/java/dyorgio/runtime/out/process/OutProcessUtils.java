@@ -74,8 +74,17 @@ public class OutProcessUtils {
      */
     public static String getCurrentClasspath() {
         StringBuilder buffer = new StringBuilder();
-        for (URL url : ((URLClassLoader) (Thread.currentThread().getContextClassLoader())).getURLs()) {
-            String urlStr = url.getPath();
+        String[] urls;
+        if (Thread.currentThread().getContextClassLoader() instanceof URLClassLoader) {
+            URL[] urlsArray = ((URLClassLoader) Thread.currentThread().getContextClassLoader()).getURLs();
+            urls = new String[urlsArray.length];
+            for (int i = 0; i < urlsArray.length; i++) {
+                urls[i] = urlsArray[i].getPath();
+            }
+        } else {
+            urls = System.getProperty("java.class.path").split(File.pathSeparator);
+        }
+        for (String urlStr : urls) {
             urlStr = urlStr.replaceFirst("jar:", "");
             if (IS_WINDOWS) {
                 urlStr = urlStr.replaceFirst("file:\\/", "");
