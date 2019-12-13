@@ -285,11 +285,14 @@ public class OutProcessExecutorService extends AbstractExecutorService {
 
             try {
                 interrupt();
+                if (!isInterrupted()) {
+                    interrupt();
+                }
             } catch (Exception e) {
             }
 
             try {
-                join();
+                join(3000);
             } catch (Exception e) {
             }
 
