@@ -1,5 +1,5 @@
 /** *****************************************************************************
- * Copyright 2017 See AUTHORS file.
+ * Copyright 2020 See AUTHORS file.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -53,7 +53,7 @@ public class OutProcessTest implements Serializable {
 
     /**
      * Test if an Exception is correctly handled by library.
-     * 
+     *
      */
     @Test(expected = ExecutionException.class)
     public void testOneRunThrows() throws Throwable {
@@ -136,10 +136,18 @@ public class OutProcessTest implements Serializable {
         OutProcessExecutorService sharedProcess = null;
         Integer jvmPID = null;
         try {
-            sharedProcess = new OutProcessExecutorService((List<String> commands) -> {
-                ProcessBuilder processBuilder = new ProcessBuilder(commands);
-                processBuilder.directory(new File("./target"));
-                return processBuilder;
+            sharedProcess = new OutProcessExecutorService(new ProcessBuilderFactory() {
+                @Override
+                public ProcessBuilder create(List<String> commands) throws Exception {
+                    ProcessBuilder processBuilder = new ProcessBuilder(commands);
+                    processBuilder.directory(new File("./target"));
+                    return processBuilder;
+                }
+
+                @Override
+                public void consume(Process startedProcess) {
+                    // nothing
+                }
             }, "-Xmx32m");
             jvmPID = sharedProcess.submit(new CallableSerializable<Integer>() {
                 @Override

@@ -1,5 +1,5 @@
 /** *****************************************************************************
- * Copyright 2017 See AUTHORS file.
+ * Copyright 2020 See AUTHORS file.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,4 +25,11 @@ import java.util.List;
 public interface ProcessBuilderFactory {
 
     ProcessBuilder create(List<String> commands) throws Exception;
+
+    /**
+     * Consume started Process.
+     *
+     * @param startedProcess
+     */
+    void consume(Process startedProcess);
 }

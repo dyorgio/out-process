@@ -1,5 +1,5 @@
 /** *****************************************************************************
- * Copyright 2019 See AUTHORS file.
+ * Copyright 2020 See AUTHORS file.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +19,19 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.NotSerializableException;
+import java.io.PrintStream;
 import java.io.Serializable;
+import java.io.UnsupportedEncodingException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Locale;
+import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import org.nustaq.serialization.FSTConfiguration;
@@ -66,6 +72,20 @@ public class OutProcessUtils {
         }
     }
 
+    public static void compatibleInheritIO(String srcIdentifier, final InputStream src, final PrintStream dest) {
+        Thread thread = new Thread(srcIdentifier) {
+            @Override
+            public void run() {
+                Scanner sc = new Scanner(src);
+                while (sc.hasNextLine()) {
+                    dest.println(sc.nextLine());
+                }
+            }
+        };
+        thread.setDaemon(true);
+        thread.start();
+    }
+
     /**
      * Get current Thread classpath.
      *
@@ -91,6 +111,11 @@ public class OutProcessUtils {
             }
             urlStr = urlStr.replaceFirst("file:", "");
 
+            try {
+                urlStr = URLDecoder.decode(urlStr, StandardCharsets.UTF_8.name());
+            } catch (UnsupportedEncodingException e) {
+                // UTF-8 is always available
+            }
             buffer.append(new File(urlStr));
             buffer.append(File.pathSeparatorChar);
         }
@@ -127,6 +152,11 @@ public class OutProcessUtils {
                 }
                 url = url.replaceFirst("file:", "");
 
+                try {
+                    url = URLDecoder.decode(url, StandardCharsets.UTF_8.name());
+                } catch (UnsupportedEncodingException e) {
+                    // UTF-8 is always available
+                }
                 urls.add(url);
             }
 

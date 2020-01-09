@@ -15,26 +15,38 @@
  ***************************************************************************** */
 package dyorgio.runtime.out.process;
 
+import static dyorgio.runtime.out.process.OutProcessUtils.compatibleInheritIO;
 import java.util.List;
 
 /**
- * Default implementation, just calls <code>ProcessBuilder</code> constructor
- * and <code>inheritIO()</code>.
+ * Complatible implementation, just calls <code>ProcessBuilder</code>
+ * constructor, <b>don't use</b> <code>inheritIO()</code>. Create auxiliar
+ * threads to transfer System.out and System.err from child process to this JVM
+ * process.
  *
  * @author dyorgio
  * @see ProcessBuilderFactory
  * @see ProcessBuilder#ProcessBuilder(java.util.List)
  * @see ProcessBuilder#inheritIO()
  */
-public class DefaultProcessBuilderFactory implements ProcessBuilderFactory {
+public class CompatibleInheritIOProcessBuilderFactory implements ProcessBuilderFactory {
 
     @Override
     public ProcessBuilder create(List<String> commands) throws Exception {
-        return new ProcessBuilder(commands).inheritIO();
+        return new ProcessBuilder(commands);
     }
 
     @Override
     public void consume(Process startedProcess) {
-        // nothing
+        String processThreadName = generateProcessThreadName(startedProcess);
+        if (processThreadName == null || processThreadName.trim().isEmpty()) {
+            processThreadName = "OutProcess";
+        }
+        compatibleInheritIO(processThreadName + "-System.out", startedProcess.getInputStream(), System.out);
+        compatibleInheritIO(processThreadName + "-System.err", startedProcess.getErrorStream(), System.err);
+    }
+
+    protected String generateProcessThreadName(Process startedProcess) {
+        return null;
     }
 }
