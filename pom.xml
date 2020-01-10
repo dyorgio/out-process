@@ -5,7 +5,7 @@
     
     <groupId>com.github.dyorgio.runtime</groupId>
     <artifactId>out-process</artifactId>
-    <version>1.2.5-SNAPSHOT</version>
+    <version>1.2.5</version>
     
     <packaging>jar</packaging>
     
