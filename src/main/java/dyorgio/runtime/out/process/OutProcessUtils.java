@@ -34,6 +34,8 @@ import java.util.Locale;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.nustaq.serialization.FSTConfiguration;
 
 /**
@@ -58,6 +60,7 @@ public class OutProcessUtils {
     };
 
     private static boolean IS_MAC, IS_WINDOWS, IS_LINUX;
+    private static Pattern WINDOWS_DRIVER_LETTER_PATTERN;
 
     static {
         String OS = System.getProperty("os.name", "generic").toLowerCase(Locale.ENGLISH);
@@ -65,6 +68,7 @@ public class OutProcessUtils {
             IS_MAC = true;
         } else if (OS.contains("win")) {
             IS_WINDOWS = true;
+            WINDOWS_DRIVER_LETTER_PATTERN = Pattern.compile("\\w:\\\\(.*)");
         } else if (OS.contains("nux")) {
             IS_LINUX = true;
         } else {
@@ -116,7 +120,7 @@ public class OutProcessUtils {
             } catch (UnsupportedEncodingException e) {
                 // UTF-8 is always available
             }
-            buffer.append(new File(urlStr));
+            buffer.append((IS_WINDOWS ? toUNCForm(new File(urlStr)) : new File(urlStr)).getAbsolutePath());
             buffer.append(File.pathSeparatorChar);
         }
         String classpath = buffer.toString();
@@ -157,7 +161,7 @@ public class OutProcessUtils {
                 } catch (UnsupportedEncodingException e) {
                     // UTF-8 is always available
                 }
-                urls.add(url);
+                urls.add((IS_WINDOWS ? toUNCForm(new File(url)) : new File(url)).getAbsolutePath());
             }
 
         }
@@ -171,6 +175,22 @@ public class OutProcessUtils {
         }
 
         return builder.toString();
+    }
+
+    @SuppressWarnings("UseSpecificCatch")
+    private static File toUNCForm(File file) {
+        Matcher matcher = WINDOWS_DRIVER_LETTER_PATTERN.matcher(file.getAbsolutePath());
+        if (matcher.matches()) {
+            try {
+                Class shellFolderClass = Class.forName("sun.awt.shell.ShellFolder");
+                Object shellFolder = shellFolderClass.getDeclaredMethod("getShellFolder", File.class).invoke(null, file.toPath().getRoot().toFile());
+                Object uncPath = shellFolderClass.getDeclaredMethod("getFolderColumnValue", int.class).invoke(shellFolder, 6);
+                return uncPath != null && uncPath.toString().startsWith("\\\\") ? new File(uncPath + "\\" + matcher.group(1)) : file;
+            } catch (Exception ex) {
+                // just ignore
+            }
+        }
+        return file;
     }
 
     public static void killOutProcess(String message, Throwable cause) {
