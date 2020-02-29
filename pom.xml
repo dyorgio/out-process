@@ -59,7 +59,7 @@
         <version.maven.release.plugin>2.5.3</version.maven.release.plugin>
         
         <version.fst>2.57</version.fst>
-        <version.junit>4.12</version.junit>
+        <version.junit>4.13</version.junit>
     </properties>
     
     <dependencies>
