@@ -16,6 +16,7 @@
 package dyorgio.runtime.out.process;
 
 import static dyorgio.runtime.out.process.OutProcessUtils.getCurrentClasspath;
+import static dyorgio.runtime.out.process.OutProcessUtils.isRunning;
 import static dyorgio.runtime.out.process.OutProcessUtils.readObject;
 import static dyorgio.runtime.out.process.OutProcessUtils.writeObject;
 import dyorgio.runtime.out.process.entrypoint.RemoteMain;
@@ -23,10 +24,13 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.File;
+import java.io.IOException;
 import java.io.NotSerializableException;
 import java.io.Serializable;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -58,10 +62,10 @@ public class OutProcessExecutorService extends AbstractExecutorService {
 
     private static final String RUNNING_AS_OUT_PROCESS = "$RunnningAsOutProcess";
 
-    private boolean shutdown = false;
+    private volatile boolean shutdown = false;
     private final ProcessBuilderFactory processBuilderFactory;
     private final PipeServer pipeServer;
-    private final SynchronousQueue<SerializableFutureTask> toProcessQueue = new SynchronousQueue<>();
+    private final BlockingQueue<SerializableFutureTask> toProcessQueue = new LinkedBlockingQueue<>();
 
     /**
      * Creates an instance with specific java options
@@ -111,7 +115,6 @@ public class OutProcessExecutorService extends AbstractExecutorService {
      * @param classpath JVM classpath, if <code>null</code> will use current
      * thread classpath.
      * @param javaOptions JVM options (ex:"-xmx32m")
-     * @see RemoteThreadFactory
      * @see ProcessBuilderFactory
      * @see ProcessBuilder
      * @see OutProcessUtils#getCurrentClasspath()
@@ -126,6 +129,77 @@ public class OutProcessExecutorService extends AbstractExecutorService {
         this.processBuilderFactory = processBuilderFactory;
         this.pipeServer = new PipeServer(classpath == null ? getCurrentClasspath() : classpath, javaOptions);
         this.pipeServer.start();
+        int socketWaitCount = 0;
+        RuntimeException startupException = null;
+        while (startupException != null && this.pipeServer.socket == null && socketWaitCount < 300) {
+            socketWaitCount++;
+            startupException = checkStart();
+            Thread.sleep(50);
+        }
+        if (startupException != null) {
+            shutdownNow();
+            awaitTermination(3, TimeUnit.SECONDS);
+            throw startupException;
+        }
+    }
+
+    private RuntimeException checkStart() throws IOException {
+        RuntimeException startupException = null;
+        if (!isRunning(this.pipeServer.process)) {
+            int exitCode = this.pipeServer.process.exitValue();
+            byte[] errorBuffer = new byte[32 * 1024];
+            int readed = this.pipeServer.process.getErrorStream().available() > 0 ? this.pipeServer.process.getErrorStream().read(errorBuffer) : -1;
+            if (readed < 1) {
+                readed = this.pipeServer.process.getInputStream().available() > 0 ? this.pipeServer.process.getInputStream().read(errorBuffer) : -1;
+                if (readed < 1) {
+                    startupException = new RuntimeException("Cannot start an OutProcess: " + exitCode);
+                } else {
+                    startupException = new RuntimeException("Cannot start an OutProcess: " + exitCode + "\r\nOUT:\r\n" + new String(errorBuffer, 0, readed));
+                }
+            } else {
+                startupException = new RuntimeException("Cannot start an OutProcess: " + exitCode + "\r\nERROR:\r\n" + new String(errorBuffer, 0, readed));
+            }
+        }
+        return startupException;
+    }
+
+    private boolean checkProcess(SerializableFutureTask task, Throwable ex) {
+        if (!isRunning(this.pipeServer.process) || ex instanceof SocketException) {
+            int exitCode = this.pipeServer.process.exitValue();
+            ExecutionException executionException = null;
+            if (exitCode != 0) {
+                try {
+                    byte[] errorBuffer = new byte[32 * 1024];
+                    int readed = this.pipeServer.process.getErrorStream().read(errorBuffer);
+                    if (readed < 1) {
+                        readed = this.pipeServer.process.getInputStream().read(errorBuffer);
+                        if (readed > 0) {
+                            executionException = new ExecutionException(new RejectedExecutionException("Error in OutProcess: " + exitCode + "\r\nOUT:\r\n" + new String(errorBuffer, 0, readed), ex));
+                        }
+                    } else {
+                        executionException = new ExecutionException(new RejectedExecutionException("Error in OutProcess: " + exitCode + "\r\nERROR:\r\n" + new String(errorBuffer, 0, readed), ex));
+                    }
+                } catch (IOException ioex) {
+                    // just ignore
+                }
+            }
+            if (executionException == null) {
+                executionException = new ExecutionException(new RejectedExecutionException("OutProcess Finished: " + exitCode));
+            }
+
+            shutdown();
+            while (task != null) {
+                task.executionException = executionException;
+                task.done = true;
+                synchronized (task) {
+                    task.notifyAll();
+                }
+                task = toProcessQueue.poll();
+            }
+            shutdownNow();
+            return false;
+        }
+        return true;
     }
 
     @Override
@@ -160,12 +234,12 @@ public class OutProcessExecutorService extends AbstractExecutorService {
 
     @Override
     protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable) {
-        return (RunnableFuture<T>) new SerializableFutureTask((Callable<Serializable>) callable);
+        return (RunnableFuture<T>) new SerializableFutureTask(this, (Callable<Serializable>) callable);
     }
 
     @Override
     protected <T> RunnableFuture<T> newTaskFor(Runnable runnable, T value) {
-        return (RunnableFuture<T>) new SerializableFutureTask(runnable, (Serializable) value);
+        return (RunnableFuture<T>) new SerializableFutureTask(this, runnable, (Serializable) value);
     }
 
     @Override
@@ -185,7 +259,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
             }
         } else {
             try {
-                toProcessQueue.put(new SerializableFutureTask(runnable, (Serializable) null));
+                toProcessQueue.put(new SerializableFutureTask(this, runnable, (Serializable) null));
             } catch (InterruptedException ex) {
                 throw new RejectedExecutionException(ex);
             }
@@ -200,10 +274,12 @@ public class OutProcessExecutorService extends AbstractExecutorService {
         private final ServerSocket server;
         private final String secret;
         private final Process process;
+        private Socket socket;
 
         PipeServer(String classpath, String... javaOptions) throws Exception {
             super("OutProcess-PipeServer");
             this.server = new ServerSocket(0);
+            this.server.setSoTimeout(250);
             Random r = new Random(System.nanoTime());
             this.secret = r.nextLong() + ":" + r.nextLong();
 
@@ -226,15 +302,23 @@ public class OutProcessExecutorService extends AbstractExecutorService {
         public void run() {
             while (!shutdown && !isInterrupted()) {
                 try {
-                    Socket s = server.accept();
-                    if (s != null) {
+                    try {
+                        socket = server.accept();
+                    } catch (SocketTimeoutException ste) {
+                        RuntimeException startException = checkStart();
+                        if (startException != null) {
+                            throw startException;
+                        }
+                    }
 
-                        DataInputStream input = new DataInputStream(s.getInputStream());
+                    if (socket != null) {
+
+                        DataInputStream input = new DataInputStream(socket.getInputStream());
 
                         String clientSecret = input.readUTF();
                         if (clientSecret.equals(secret)) {
 
-                            DataOutputStream output = new DataOutputStream(s.getOutputStream());
+                            DataOutputStream output = new DataOutputStream(socket.getOutputStream());
 
                             SerializableFutureTask task;
                             int length[] = new int[1];
@@ -256,10 +340,12 @@ public class OutProcessExecutorService extends AbstractExecutorService {
                                         }
                                     } catch (EOFException e) {
                                         task.executionException = new ExecutionException(new RejectedExecutionException("Closed OutProcess socket."));
-                                        shutdown = true;
+                                        shutdownNow();
                                     } catch (Throwable e) {
-                                        task.executionException = new ExecutionException(e);
-                                        shutdown = true;
+                                        if (checkProcess(task, e)) {
+                                            task.executionException = new ExecutionException(e);
+                                            shutdownNow();
+                                        }
                                     } finally {
                                         task.done = true;
                                         synchronized (task) {
@@ -269,7 +355,7 @@ public class OutProcessExecutorService extends AbstractExecutorService {
                                 }
                             }
                         } else {
-                            s.close();
+                            socket.close();
                         }
                     }
                 } catch (Exception e) {
@@ -306,24 +392,25 @@ public class OutProcessExecutorService extends AbstractExecutorService {
 
     private static class SerializableFutureTask implements RunnableFuture<Serializable> {
 
+        private final OutProcessExecutorService executor;
         private final Callable<Serializable> callable;
         private boolean done = false;
         private Serializable result;
         private ExecutionException executionException;
 
-        public SerializableFutureTask(final Runnable runnable, final Serializable value) {
+        public SerializableFutureTask(final OutProcessExecutorService executor, final Runnable runnable, final Serializable value) {
             if (!(runnable instanceof Serializable)) {
                 throw new RejectedExecutionException(new NotSerializableException());
             }
-
+            this.executor = executor;
             this.callable = new SerializableCall(runnable, value);
         }
 
-        public SerializableFutureTask(Callable<Serializable> callable) {
+        public SerializableFutureTask(final OutProcessExecutorService executor, Callable<Serializable> callable) {
             if (!(callable instanceof Serializable)) {
                 throw new RejectedExecutionException(new NotSerializableException());
             }
-
+            this.executor = executor;
             this.callable = callable;
         }
 
@@ -352,8 +439,12 @@ public class OutProcessExecutorService extends AbstractExecutorService {
             if (done) {
                 return getResult();
             }
-            synchronized (this) {
-                wait();
+            while (!done) {
+                if (!executor.checkProcess(this, null)) {
+                    synchronized (this) {
+                        wait(50);
+                    }
+                }
             }
             return getResult();
         }

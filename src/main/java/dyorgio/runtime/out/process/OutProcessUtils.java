@@ -15,12 +15,16 @@
  ***************************************************************************** */
 package dyorgio.runtime.out.process;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.NotSerializableException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.PrintStream;
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
@@ -36,7 +40,6 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.nustaq.serialization.FSTConfiguration;
 
 /**
  * Constants and utility methods used in an out process execution.
@@ -50,7 +53,6 @@ public class OutProcessUtils {
      */
     public static final String RUNNING_AS_OUT_PROCESS = "$RunnningAsOutProcess";
     public static final String SHUTDOWN_OUT_PROCESS_REQUESTED = "$ShutdownOutProcessRequested";
-    private static final FSTConfiguration FST_CONFIGURATION = FSTConfiguration.createDefaultConfiguration();
 
     private static final ThreadLocal<CachedBuffer> BUFFER_CACHE = new ThreadLocal() {
         @Override
@@ -249,7 +251,7 @@ public class OutProcessUtils {
      * @return Object instance.
      * @throws IOException
      */
-    public static <T> T readObject(DataInputStream input, Class<T> clazz) throws IOException {
+    public static <T> T readObject(DataInputStream input, Class<T> clazz) throws IOException, ClassNotFoundException {
         int originalLen, len = originalLen = input.readInt();
         byte[] buffer;
         CachedBuffer cachedBuffer = BUFFER_CACHE.get();
@@ -304,8 +306,19 @@ public class OutProcessUtils {
      * @param length Buffer to receive count of bytes wrote to output.
      * @return Binary representation of object parameter.
      */
-    public static byte[] serialize(Object obj, int[] length) {
-        return FST_CONFIGURATION.asSharedByteArray(obj, length);
+    public static byte[] serialize(Object obj, int[] length) throws IOException {
+        ByteArrayOutputStream outputBuffer = new ByteArrayOutputStream();
+        ObjectOutputStream output = new ObjectOutputStream(outputBuffer);
+        try {
+            output.writeObject(obj);
+            output.flush();
+            byte[] data = outputBuffer.toByteArray();
+            length[0] = data.length;
+            return data;
+        } finally {
+            outputBuffer.close();
+            output.close();
+        }
     }
 
     /**
@@ -316,8 +329,27 @@ public class OutProcessUtils {
      * @param clazz
      * @return A java object.
      */
-    public static <T> T unserialize(byte[] data, Class<T> clazz) {
-        return (T) FST_CONFIGURATION.asObject(data);
+    public static <T> T unserialize(byte[] data, Class<T> clazz) throws IOException, ClassNotFoundException {
+        ObjectInputStream input = new ObjectInputStream(new ByteArrayInputStream(data));
+        try {
+            return (T) input.readObject();
+        } finally {
+            input.close();
+        }
+    }
+
+    /**
+     * A compatible Process alive check
+     * @param process
+     * @return 
+     */
+    public static boolean isRunning(Process process) {
+        try {
+            process.exitValue();
+            return false;
+        } catch (IllegalThreadStateException e) {
+            return true;
+        }
     }
 
     private static class CachedBuffer {

@@ -44,7 +44,7 @@
         <connection>scm:git:git@github.com:dyorgio/out-process.git</connection>
         <developerConnection>scm:git:git@out-process.github.com:dyorgio/out-process.git</developerConnection>
         <url>https://github.com/dyorgio/out-process.git</url>
-        <tag>out-process-1.2.5</tag>
+        <tag>HEAD</tag>
     </scm>
     
     <properties>
@@ -58,16 +58,10 @@
         <version.animal.sniffer.maven.plugin>1.16</version.animal.sniffer.maven.plugin>
         <version.maven.release.plugin>2.5.3</version.maven.release.plugin>
         
-        <version.fst>2.57</version.fst>
         <version.junit>4.13</version.junit>
     </properties>
     
     <dependencies>
-        <dependency>
-            <groupId>de.ruedigermoeller</groupId>
-            <artifactId>fst</artifactId>
-            <version>${version.fst}</version>
-        </dependency>
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
@@ -207,6 +201,27 @@
                                 </goals>
                             </execution>
                         </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>de.jutzig</groupId>
+                        <artifactId>github-release-plugin</artifactId>
+                        <version>1.4.0</version>
+                        <configuration>
+                            <description>
+Removed FST dependency (use pure java serialization).
+Better start out process error handling.
+                            </description>
+                            <releaseName>${project.version}</releaseName>
+                            <tag>${project.version}</tag>
+                            <fileSets>
+                                <fileSet>
+                                    <directory>${project.build.directory}</directory>
+                                    <includes>
+                                        <include>${project.artifactId}*.jar</include>
+                                    </includes>
+                                </fileSet>
+                            </fileSets>
+                        </configuration>
                     </plugin>
                 </plugins>
             </build>
