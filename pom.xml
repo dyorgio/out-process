@@ -56,9 +56,8 @@
         
         <version.maven.compiler.plugin>3.7.0</version.maven.compiler.plugin>
         <version.animal.sniffer.maven.plugin>1.16</version.animal.sniffer.maven.plugin>
-        <version.maven.release.plugin>2.5.3</version.maven.release.plugin>
         
-        <version.junit>4.13</version.junit>
+        <version.junit>4.13.1</version.junit>
     </properties>
     
     <dependencies>
